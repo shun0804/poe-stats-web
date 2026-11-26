@@ -37,6 +37,17 @@ def decode_pob(s):
     return root
 
 
+ENCHANT_MOD_RE = re.compile(
+    r'^(?:Allocates\s+|Adds\s+\d+\s+Passive\s+Skills|'
+    r'\d+\s+Added\s+Passive\s+Skills?\s+(?:is|are)\s+a?\s*Jewel\s+Sockets?|'
+    r'Added\s+Small\s+Passive\s+Skills\s+grant:|'
+    r'Used\s+when\s+Charges\s+reach\s+full|'
+    r'Quality\s+does\s+not\s+increase\s+|'
+    r'Grants\s+\d+%\s+increased\s+.*per\s+\d+%\s+Quality)',
+    re.I,
+)
+
+
 def parse_item(item):
     lines = [x.strip() for x in (item.text or '').splitlines() if x.strip()]
     if not lines or not lines[0].startswith('Rarity:'):
@@ -58,12 +69,13 @@ def parse_item(item):
         'Unique ID:', 'Item Level:', 'LevelReq:', 'Quality:', 'Sockets:', 'Implicits:',
         'Requirements:', 'Radius:', 'Limited to:', 'Cluster Jewel Skill:',
         'Cluster Jewel Node Count:', 'Variant:', 'Selected Variant:', 'Enchant:',
-        'Corrupted', 'Mirrored', 'Split', 'Fractured Item', 'Historic', 'Catalyst',
-        'Armour', 'Evasion', 'Energy Shield', 'Ward', 'Chance to Block',
+        'Catalyst:', 'CatalystQuality:', 'Armour:', 'Evasion:', 'Evasion Rating:',
+        'Energy Shield:', 'Ward:', 'Chance to Block:',
         'Physical Damage:', 'Elemental Damage:', 'Critical Strike Chance:',
         'Attacks per Second:', 'Weapon Range:', 'Map Tier:', 'Stack Size:',
         'Rarity:', 'Level:', 'Dex:', 'Str:', 'Int:',
     )
+    ignore_exact = {'Corrupted', 'Mirrored', 'Split', 'Fractured Item', 'Historic', 'Synthesised Item'}
     skill_grant_re = re.compile(
         r'^(?:Grants?\s+Level\s+\d+|Trigger\s+Level\s+\d+|Cast\s+Level\s+\d+|'
         r'授予\s*等級\s*\d+|觸發\s*等級\s*\d+|施放\s*等級\s*\d+|'
@@ -71,35 +83,66 @@ def parse_item(item):
         re.I,
     )
     mods = []
+    mod_entries = []
     implicit_count = 0
-    for x in lines[2:]:
-        if x.startswith('Implicits:'):
+    seen_implicits = False
+    remaining_implicits = 0
+    for raw_line in lines[2:]:
+        if raw_line.startswith('Implicits:'):
             try:
-                implicit_count = int(x.split(':', 1)[1].strip())
+                implicit_count = int(raw_line.split(':', 1)[1].strip())
             except ValueError:
-                pass
+                implicit_count = 0
+            seen_implicits = True
+            remaining_implicits = implicit_count
             continue
         if (
-            x == base
-            or re.match(r'^[A-Za-z][A-Za-z0-9_ ]{1,30}:', x)
-            or x.startswith(ignore)
-            or x.startswith((
+            raw_line == base
+            or raw_line in ignore_exact
+            or raw_line.startswith(ignore)
+            or raw_line.startswith((
                 'Has Influence:', 'Influence:', 'Tags:', 'ArmourBasePercentile:',
                 'EvasionBasePercentile:', 'EnergyShieldBasePercentile:',
                 'BasePercentile:', 'DefencePercentile:', 'CraftedMods:',
                 'Prefix:', 'Suffix:', 'Sockets:',
             ))
+            or (re.match(r'^[A-Za-z][A-Za-z0-9_ ]{1,30}:', raw_line) and not raw_line.lower().startswith('added small passive skills'))
         ):
             continue
-        if x.startswith('{') and '}' in x:
-            x = re.sub(r'^(?:\{[^}]*\})+', '', x).strip()
-        if x and not x.startswith(('Item ', 'Requires ')) and not skill_grant_re.search(x):
-            mods.append(x)
+        low_raw = raw_line.lower()
+        tags = set(re.findall(r'\{([^}]+)\}', low_raw))
+        clean_x = re.sub(r'^(?:\{[^}]*\})+', '', raw_line).strip()
+        if not clean_x or clean_x.startswith(('Item ', 'Requires ')):
+            continue
+        is_imp_slot = False
+        if seen_implicits and remaining_implicits > 0:
+            is_imp_slot = True
+            remaining_implicits -= 1
+        if skill_grant_re.search(clean_x):
+            continue
+        if is_imp_slot:
+            if 'enchant' in tags or ENCHANT_MOD_RE.search(clean_x):
+                pref = 'enchant'
+            else:
+                pref = 'implicit'
+        elif 'fractured' in tags:
+            pref = 'fractured'
+        elif 'crafted' in tags:
+            pref = 'crafted'
+        elif 'enchant' in tags:
+            pref = 'enchant'
+        elif 'implicit' in tags:
+            pref = 'implicit'
+        else:
+            pref = 'explicit'
+        mods.append(clean_x)
+        mod_entries.append({'text': clean_x, 'preferred': pref})
     return {
         'rarity': rarity,
         'name': name,
         'base': base,
         'mods': mods,
+        'mod_entries': mod_entries,
         'raw': '\n'.join(lines),
         'implicit_count': implicit_count,
     }
@@ -154,7 +197,12 @@ def parse_pob(s, source=''):
             for group in skset.findall('Skill'):
                 if group.get('enabled') == 'false' or 'Swap' in group.get('slot', ''):
                     continue
+                # Skip skills granted by equipment (source="Item:..."), passive tree (source="Tree:..."), or explosions
+                if group.get('source'):
+                    continue
                 for gem in group.findall('Gem'):
+                    if not gem.get('gemId'):
+                        continue
                     name = gem.get('nameSpec') or gem.get('gemId') or gem.get('skillId')
                     if name:
                         skills.append({
@@ -218,7 +266,7 @@ CATALOGUE_URLS = {
 
 STAT_KIND_LABELS = {
     'explicit': '外顯',
-    'implicit': '固定',
+    'implicit': '固定屬性',
     'fractured': '破裂',
     'crafted': '工藝',
     'enchant': '附魔',
@@ -815,10 +863,14 @@ def match_mods(mods):
 
     output = []
     for item_entry in mods:
-        mod = item_entry.get('text', '') if isinstance(item_entry, dict) else item_entry
+        if isinstance(item_entry, dict):
+            mod = item_entry.get('text', '')
+            pref_kind = item_entry.get('preferred') or detect_mod_preferred_kind(mod)
+        else:
+            mod = item_entry
+            pref_kind = detect_mod_preferred_kind(mod)
         if not isinstance(mod, str) or len(mod) > 500:
             continue
-        pref_kind = detect_mod_preferred_kind(mod)
         norm = normalize_stat(mod)
         canon = canonical_stat(mod)
         override_key = canon or norm
@@ -1120,7 +1172,40 @@ def sanitize_tw_unique_name(name):
     return name
 
 
-def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable'):
+SLOT_CATEGORY_MAP = {
+    'helmet': 'armour.helmet',
+    'body armour': 'armour.chest',
+    'gloves': 'armour.gloves',
+    'boots': 'armour.boots',
+    'amulet': 'accessory.amulet',
+    'ring 1': 'accessory.ring',
+    'ring 2': 'accessory.ring',
+    'ring': 'accessory.ring',
+    'belt': 'accessory.belt',
+}
+
+
+def resolve_rare_category(slot='', base=''):
+    b = str(base or '').lower()
+    sl = str(slot or '').strip().lower()
+    if 'cluster jewel' in b or '星團珠寶' in b:
+        return 'jewel.cluster'
+    if 'abyss' in b or 'eye jewel' in b or '深淵珠寶' in b or '之眼珠寶' in b:
+        return 'jewel.abyss'
+    if 'jewel' in b or '珠寶' in b or sl == '珠寶':
+        return 'jewel'
+    if sl in SLOT_CATEGORY_MAP:
+        return SLOT_CATEGORY_MAP[sl]
+    if 'quiver' in b or '箭袋' in b:
+        return 'armour.quiver'
+    if 'shield' in b or '盾' in b:
+        return 'armour.shield'
+    if sl in ('weapon 1', 'weapon 2', 'weapon'):
+        return 'weapon'
+    return ''
+
+
+def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable', slot=''):
     if not isinstance(league, str) or not league.strip() or len(league) > 100:
         raise ValueError('請填入正確的台服聯盟名稱')
     if kind not in ('unique', 'gem', 'rare'):
@@ -1144,7 +1229,10 @@ def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_
         if kind == 'unique':
             clean_name = sanitize_tw_unique_name(name)
             query['name'] = clean_name
-        # Rare items filter strictly by selected mod stats only (no name or base type)
+        else:
+            cat = resolve_rare_category(slot, base)
+            if cat:
+                query['filters']['type_filters']['filters']['category'] = {'option': cat}
         if stat_ids:
             if (
                 not isinstance(stat_ids, list)
@@ -1189,8 +1277,8 @@ def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_
     return query
 
 
-def build_direct_q_url(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable'):
-    query = build_trade_query(name, league, kind, base, stat_ids, stat_filters, status_option=status_option)
+def build_direct_q_url(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable', slot=''):
+    query = build_trade_query(name, league, kind, base, stat_ids, stat_filters, status_option=status_option, slot=slot)
     q_json = json.dumps({'query': query, 'sort': {'price': 'asc'}}, ensure_ascii=False, separators=(',', ':'))
     return (
         'https://pathofexile.tw/trade/search/'
@@ -1200,8 +1288,8 @@ def build_direct_q_url(name, league, kind='unique', base='', stat_ids=None, stat
     )
 
 
-def execute_trade_search(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable'):
-    query = build_trade_query(name, league, kind, base, stat_ids, stat_filters, status_option=status_option)
+def execute_trade_search(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable', slot=''):
+    query = build_trade_query(name, league, kind, base, stat_ids, stat_filters, status_option=status_option, slot=slot)
     payload = json.dumps({'query': query, 'sort': {'price': 'asc'}}, ensure_ascii=False).encode('utf-8')
     url = 'https://pathofexile.tw/api/trade/search/' + urllib.parse.quote(league.strip(), safe='')
     req = urllib.request.Request(
@@ -1243,12 +1331,12 @@ def execute_trade_search(name, league, kind='unique', base='', stat_ids=None, st
     }
 
 
-def trade_link(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable'):
+def trade_link(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable', slot=''):
     try:
-        return execute_trade_search(name, league, kind, base, stat_ids, stat_filters, status_option=status_option)['url']
+        return execute_trade_search(name, league, kind, base, stat_ids, stat_filters, status_option=status_option, slot=slot)['url']
     except ValueError as e:
         if str(e) == 'CLOUDFLARE_403':
-            return build_direct_q_url(name, league, kind, base, stat_ids, stat_filters, status_option=status_option)
+            return build_direct_q_url(name, league, kind, base, stat_ids, stat_filters, status_option=status_option, slot=slot)
         raise
 
 
@@ -1427,6 +1515,7 @@ def run_single_monitor_check(client_id, monitor_id, is_initial=False):
             'stat_ids': mon.get('statIds', []),
             'stat_filters': mon.get('statFilters', []),
             'status_option': mon.get('statusOption', 'securable'),
+            'slot': mon.get('slot', ''),
         }
         seen_set = set(mon.get('seenIds', []))
         display_name = mon['displayName']
@@ -1943,7 +2032,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
         if route == '/health':
-            self.reply({'ok': True, 'version': '2.34-web'})
+            self.reply({'ok': True, 'version': '2.35-web'})
             return
         if route == '/api/catalogue-status':
             try:
@@ -2075,6 +2164,7 @@ class Handler(BaseHTTPRequestHandler):
                         data.get('statIds', []),
                         data.get('statFilters'),
                         status_option=status_opt,
+                        slot=str(data.get('slot', '')).strip(),
                     ),
                 })
                 return
@@ -2104,7 +2194,8 @@ class Handler(BaseHTTPRequestHandler):
                     q_name = sanitize_tw_unique_name(q_name)
                 if kind == 'rare' and not d_name:
                     d_name = base or '自訂稀有裝備'
-                build_trade_query(q_name, league, kind, base, stat_ids, stat_filters, status_option=status_opt)
+                slot_val = str(data.get('slot', '')).strip()
+                build_trade_query(q_name, league, kind, base, stat_ids, stat_filters, status_option=status_opt, slot=slot_val)
                 mid = uuid.uuid4().hex[:10]
                 now_ts = time.time()
                 mon_obj = {
@@ -2114,6 +2205,7 @@ class Handler(BaseHTTPRequestHandler):
                     'league': league,
                     'kind': kind,
                     'base': base,
+                    'slot': slot_val,
                     'statIds': stat_ids,
                     'statFilters': stat_filters,
                     'condSummary': cond_summary,
@@ -2256,7 +2348,7 @@ if __name__ == '__main__':
     host = '0.0.0.0'
     port = int(os.environ.get('PORT', '8766'))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'POE 裝備統計 V2.34 (多星團珠寶完整保留 + 稀有純詞條搜尋 + 過濾雜項與裝備技能): http://{host}:{port}/')
+    print(f'POE 裝備統計 V2.35 (過濾裝備自帶技能 + 精準抓取固定屬性 implicit + 稀有裝備獨立列出且同部位純詞綴搜尋): http://{host}:{port}/')
     is_cloud = any(os.environ.get(k) for k in ('PORT', 'RENDER', 'ZEABUR', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME'))
     if not is_cloud:
         threading.Timer(0.8, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()
