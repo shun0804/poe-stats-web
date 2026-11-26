@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "overrides": {
+    "# reduced maximum life": {
+      "key": "# reduced maximum life",
+      "exampleMod": "25% reduced maximum Life",
+      "id": "explicit.stat_983749596",
+      "option": null,
+      "zh": "增加 #% 最大生命",
+      "en": "#% increased maximum Life",
+      "updatedAt": "2026-11-26 08:24:24"
+    },
+    "# reduced amount recovered": {
+      "key": "# reduced amount recovered",
+      "exampleMod": "75% reduced Amount Recovered",
+      "id": "explicit.stat_700317374",
+      "option": null,
+      "zh": "增加 #% 恢復量",
+      "en": "#% increased Amount Recovered",
+      "updatedAt": "2026-11-26 08:25:06"
+    },
+    "# reduced charge per use": {
+      "key": "# reduced charge per use",
+      "exampleMod": "16% reduced Charges per use",
+      "id": "explicit.stat_388617051",
+      "option": null,
+      "zh": "每次使用增加 #% 充能",
+      "en": "#% increased Charges per use",
+      "updatedAt": "2026-11-26 08:25:08"
+    },
+    "passives in radius are conquered by the karui": {
+      "key": "passives in radius are conquered by the karui",
+      "exampleMod": "Passives in radius are Conquered by the Karui",
+      "id": "explicit.stat_3787436548",
+      "option": null,
+      "zh": "威宏史觀",
+      "en": "Historic",
+      "updatedAt": "2026-11-26 08:27:25"
+    }
+  }
+}
