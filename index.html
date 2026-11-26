@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>POE 裝備統計助手 V2.35</title>
+<title>POE 裝備統計助手 V2.36</title>
 <style>
 :root{
   --nav-bg:#2b3643;
@@ -499,7 +499,7 @@ tr.mod-drawer-row td{
     <div class="brand">
       <span class="brand-logo">P</span>
       <span>POE 裝備統計</span>
-      <span class="ver-pill">V2.35</span>
+      <span class="ver-pill">V2.36</span>
     </div>
   </div>
   <div class="topbar-right">
@@ -1623,7 +1623,7 @@ async function fetchMatchedModsForItem(x, dKey){
     return {
       ...m,
       id:chosenId,
-      option:m.option??null,
+      option:(m.option!==null&&m.option!==undefined)?m.option:(auto?.option??null),
       zh:chosenZh,
       status:auto?'matched':m.status,
       translation_status:auto?'verified':m.translation_status,

@@ -350,6 +350,32 @@ def canonical_stat(s):
     return ' '.join(words)
 
 
+def exact_opt_key(s):
+    s = re.sub(r'\{[^}]+\}', '', str(s or ''))
+    s = re.sub(r'\((?:implicit|crafted|fractured|enchant|scourge|crucible)\)', '', s, flags=re.I)
+    s = s.replace('’', "'").replace('–', '-').replace('＋', '+')
+    s = re.sub(r'[,:;]', ' ', s)
+    return re.sub(r'\s+', ' ', s).strip().lower()
+
+
+def normalize_option_value(v):
+    if v is None or v == '' or isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return int(v) if v.is_integer() else v
+    if isinstance(v, str):
+        sv = v.strip()
+        if not sv or len(sv) > 120:
+            return None
+        if sv.isdigit():
+            return int(sv)
+        if re.fullmatch(r'[A-Za-z0-9_.\-: ]+', sv):
+            return sv
+    return None
+
+
 # --- 全站玩家共用詞綴手動修正庫 (custom_mod_overrides.json) ---
 MOD_OVERRIDE_FILE = DATA_DIR / 'custom_mod_overrides.json'
 BUNDLED_MOD_OVERRIDE_FILE = ROOT / 'custom_mod_overrides.json'
@@ -401,12 +427,7 @@ def save_mod_override(mod_text, stat_id, zh_text, en_text='', option=None):
         raise ValueError('官方詞綴編號格式不正確')
     if not zh_text or len(zh_text) > 240:
         raise ValueError('請提供有效的繁體中文詞綴名稱')
-    opt_val = None
-    if option is not None and option != '':
-        if isinstance(option, (int, float)) and not isinstance(option, bool):
-            opt_val = int(option)
-        elif isinstance(option, str) and option.isdigit():
-            opt_val = int(option)
+    opt_val = normalize_option_value(option)
 
     key = canonical_stat(mod_text) or normalize_stat(mod_text)
     if not key:
@@ -460,8 +481,7 @@ def import_mod_overrides(raw_data):
             ex = str(v.get('exampleMod', k)).strip()
             key = canonical_stat(ex) or str(k).strip()
             if key and re.fullmatch(r'[a-z]{2,20}\.[a-z0-9_]{3,80}', sid) and zh:
-                opt = v.get('option')
-                opt_val = int(opt) if isinstance(opt, (int, float)) and not isinstance(opt, bool) else None
+                opt_val = normalize_option_value(v.get('option'))
                 MOD_OVERRIDES[key] = {
                     'key': key,
                     'exampleMod': ex,
@@ -552,6 +572,8 @@ def build_stat_indexes(en_entries, tw_entries, zh_by_id):
     stats = [e for e in en_entries if e['id'].startswith(allowed)]
     tw = [e for e in tw_entries if e['id'].startswith(allowed)]
 
+    by_exact_option = {}
+    tw_by_exact_option = {}
     by_text = {}
     by_canonical = {}
     by_subline = {}
@@ -603,6 +625,9 @@ def build_stat_indexes(en_entries, tw_entries, zh_by_id):
                     'type': entry.get('type', ''),
                 }
                 expanded_entries.append(virt)
+                by_exact_option.setdefault(exact_opt_key(exp_en), []).append(virt)
+                if exp_zh:
+                    tw_by_exact_option.setdefault(exact_opt_key(exp_zh), []).append(virt)
                 v_key = normalize_stat(exp_en)
                 by_text.setdefault(v_key, []).append(virt)
                 v_ckey = canonical_stat(exp_en)
@@ -619,6 +644,8 @@ def build_stat_indexes(en_entries, tw_entries, zh_by_id):
         'tw': tw,
         'expanded': expanded_entries,
         'lookup': lookup,
+        'by_exact_option': by_exact_option,
+        'tw_by_exact_option': tw_by_exact_option,
         'by_text': by_text,
         'by_canonical': by_canonical,
         'by_subline': by_subline,
@@ -853,6 +880,8 @@ def match_mods(mods):
         catalogue_error = '無法取得交易詞綴資料：' + str(exc)[:180]
 
     idx = STAT_CACHE.get('idx') or build_stat_indexes(stats, STAT_CACHE.get('tw_entries', []), zh_by_id)
+    by_exact_option = idx.get('by_exact_option', {})
+    tw_by_exact_option = idx.get('tw_by_exact_option', {})
     by_text = idx['by_text']
     by_canonical = idx['by_canonical']
     by_subline = idx['by_subline']
@@ -898,8 +927,14 @@ def match_mods(mods):
             })
             continue
 
+        # 0.5. Exact option match preserving numbers (critical for Cluster Jewel enchants like 12% vs 4%)
+        eopt_key = exact_opt_key(mod)
+        choices = by_exact_option.get(eopt_key, [])
+        if not choices and re.search(r'[\u3400-\u9fff]', mod):
+            choices = tw_by_exact_option.get(eopt_key, [])
         # 1. Exact normalized English match (including expanded options)
-        choices = by_text.get(norm, [])
+        if not choices:
+            choices = by_text.get(norm, [])
         # 2. Canonical English match (handles (10-20) ranges, singular/plural, a/an)
         if not choices:
             choices = by_canonical.get(canon, [])
@@ -1253,7 +1288,7 @@ def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_
                         raise ValueError('詞綴數值條件無效')
                     obj = {'id': f['id'], 'disabled': False}
                     value = {}
-                    for field in ('min', 'max', 'option'):
+                    for field in ('min', 'max'):
                         v = f.get(field)
                         if v is not None and v != '':
                             if (
@@ -1263,6 +1298,12 @@ def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_
                             ):
                                 raise ValueError('詞綴數值必須是有效數字')
                             value[field] = v
+                    opt_v = f.get('option')
+                    if opt_v is not None and opt_v != '':
+                        norm_opt = normalize_option_value(opt_v)
+                        if norm_opt is None:
+                            raise ValueError('詞綴選項格式不正確')
+                        value['option'] = norm_opt
                     if value:
                         obj['value'] = value
                     parsed.append(obj)
@@ -2032,7 +2073,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
         if route == '/health':
-            self.reply({'ok': True, 'version': '2.35-web'})
+            self.reply({'ok': True, 'version': '2.36-web'})
             return
         if route == '/api/catalogue-status':
             try:
@@ -2348,7 +2389,7 @@ if __name__ == '__main__':
     host = '0.0.0.0'
     port = int(os.environ.get('PORT', '8766'))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'POE 裝備統計 V2.35 (過濾裝備自帶技能 + 精準抓取固定屬性 implicit + 稀有裝備獨立列出且同部位純詞綴搜尋): http://{host}:{port}/')
+    print(f'POE 裝備統計 V2.36 (修復星團珠寶附魔選項詞綴無法搜尋的問題): http://{host}:{port}/')
     is_cloud = any(os.environ.get(k) for k in ('PORT', 'RENDER', 'ZEABUR', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME'))
     if not is_cloud:
         threading.Timer(0.8, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()
