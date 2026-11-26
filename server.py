@@ -1112,15 +1112,15 @@ def sanitize_tw_unique_name(name):
     return name
 
 
-def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='any'):
+def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable'):
     if not isinstance(league, str) or not league.strip() or len(league) > 100:
         raise ValueError('請填入正確的台服聯盟名稱')
     if kind not in ('unique', 'gem', 'rare'):
         raise ValueError('不支援的物品類別')
     if kind in ('unique', 'gem') and (not isinstance(name, str) or not name.strip() or len(name) > 140):
         raise ValueError('請輸入或選擇有效的物品名稱')
-    if status_option not in ('any', 'online', 'securable'):
-        status_option = 'any'
+    if status_option not in ('securable', 'available', 'online', 'onlineleague', 'any'):
+        status_option = 'securable'
     query = {
         'status': {'option': status_option},
         'stats': [{'type': 'and', 'filters': []}],
@@ -1182,8 +1182,8 @@ def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_
     return query
 
 
-def build_direct_q_url(name, league, kind='unique', base='', stat_ids=None, stat_filters=None):
-    query = build_trade_query(name, league, kind, base, stat_ids, stat_filters, status_option='any')
+def build_direct_q_url(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable'):
+    query = build_trade_query(name, league, kind, base, stat_ids, stat_filters, status_option=status_option)
     q_json = json.dumps({'query': query, 'sort': {'price': 'asc'}}, ensure_ascii=False, separators=(',', ':'))
     return (
         'https://pathofexile.tw/trade/search/'
@@ -1193,7 +1193,7 @@ def build_direct_q_url(name, league, kind='unique', base='', stat_ids=None, stat
     )
 
 
-def execute_trade_search(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='any'):
+def execute_trade_search(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable'):
     query = build_trade_query(name, league, kind, base, stat_ids, stat_filters, status_option=status_option)
     payload = json.dumps({'query': query, 'sort': {'price': 'asc'}}, ensure_ascii=False).encode('utf-8')
     url = 'https://pathofexile.tw/api/trade/search/' + urllib.parse.quote(league.strip(), safe='')
@@ -1236,12 +1236,12 @@ def execute_trade_search(name, league, kind='unique', base='', stat_ids=None, st
     }
 
 
-def trade_link(name, league, kind='unique', base='', stat_ids=None, stat_filters=None):
+def trade_link(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='securable'):
     try:
-        return execute_trade_search(name, league, kind, base, stat_ids, stat_filters, status_option='any')['url']
+        return execute_trade_search(name, league, kind, base, stat_ids, stat_filters, status_option=status_option)['url']
     except ValueError as e:
         if str(e) == 'CLOUDFLARE_403':
-            return build_direct_q_url(name, league, kind, base, stat_ids, stat_filters)
+            return build_direct_q_url(name, league, kind, base, stat_ids, stat_filters, status_option=status_option)
         raise
 
 
@@ -1419,7 +1419,7 @@ def run_single_monitor_check(client_id, monitor_id, is_initial=False):
             'base': mon.get('base', ''),
             'stat_ids': mon.get('statIds', []),
             'stat_filters': mon.get('statFilters', []),
-            'status_option': mon.get('statusOption', 'online'),
+            'status_option': mon.get('statusOption', 'securable'),
         }
         seen_set = set(mon.get('seenIds', []))
         display_name = mon['displayName']
@@ -1936,7 +1936,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
         if route == '/health':
-            self.reply({'ok': True, 'version': '2.32-web'})
+            self.reply({'ok': True, 'version': '2.33-web'})
             return
         if route == '/api/catalogue-status':
             try:
@@ -1992,7 +1992,7 @@ class Handler(BaseHTTPRequestHandler):
             '/api/parse', '/api/parse-item-text', '/api/poedb', '/api/trade-link', '/api/names',
             '/api/match-mods', '/api/catalogue-import', '/api/catalogue-refresh',
             '/api/mod-overrides/save', '/api/mod-overrides/delete', '/api/mod-overrides/import',
-            '/api/monitors/add', '/api/monitors/toggle', '/api/monitors/delete',
+            '/api/monitors/add', '/api/monitors/toggle', '/api/monitors/delete', '/api/monitors/set-all-status',
             '/api/monitors/check', '/api/monitors/settings', '/api/monitors/test-discord',
             '/api/monitors/ack', '/api/monitors/clear-alerts',
         )
@@ -2049,6 +2049,7 @@ class Handler(BaseHTTPRequestHandler):
                 q_name = str(data.get('name', '')).strip()
                 kind = data.get('kind', 'unique')
                 base = str(data.get('base', '')).strip()
+                status_opt = data.get('statusOption', 'securable')
                 if kind in ('unique', 'gem') and q_name and not re.search(r'[\u3400-\u9fff]', q_name):
                     r = resolve_name(q_name, kind, allow_web=True)
                     if r.get('zh'):
@@ -2066,6 +2067,7 @@ class Handler(BaseHTTPRequestHandler):
                         base,
                         data.get('statIds', []),
                         data.get('statFilters'),
+                        status_option=status_opt,
                     ),
                 })
                 return
@@ -2078,7 +2080,7 @@ class Handler(BaseHTTPRequestHandler):
                 stat_ids = data.get('statIds') or []
                 stat_filters = data.get('statFilters') or []
                 cond_summary = str(data.get('condSummary', '')).strip()
-                status_opt = data.get('statusOption', 'online')
+                status_opt = data.get('statusOption', 'securable')
                 if kind in ('unique', 'gem') and q_name and not re.search(r'[\u3400-\u9fff]', q_name):
                     r = resolve_name(q_name, kind, allow_web=True)
                     if r.get('zh'):
@@ -2156,6 +2158,24 @@ class Handler(BaseHTTPRequestHandler):
                     save_monitors_unlocked()
                 self.reply({'ok': True})
                 return
+            elif route == '/api/monitors/set-all-status':
+                target_status = data.get('statusOption', 'securable')
+                if target_status not in ('securable', 'available', 'online', 'onlineleague', 'any'):
+                    target_status = 'securable'
+                with MONITOR_LOCK:
+                    bucket = get_user_bucket_unlocked(cid)
+                    ids = []
+                    for m in bucket['monitors']:
+                        m['statusOption'] = target_status
+                        m['seenIds'] = []
+                        if m.get('enabled', True):
+                            ids.append(m['id'])
+                    save_monitors_unlocked()
+                for i in ids:
+                    run_single_monitor_check(cid, i, is_initial=True)
+                    time.sleep(0.8)
+                self.reply({'ok': True, 'updated': len(ids)})
+                return
             elif route == '/api/monitors/check':
                 mid = data.get('id')
                 if mid:
@@ -2229,7 +2249,7 @@ if __name__ == '__main__':
     host = '0.0.0.0'
     port = int(os.environ.get('PORT', '8766'))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'POE 裝備統計 V2.32 (詞綴手動搜尋修正 + 全站玩家共用詞綴庫): http://{host}:{port}/')
+    print(f'POE 裝備統計 V2.33 (所有賣場與監管預設為「即刻購買」): http://{host}:{port}/')
     is_cloud = any(os.environ.get(k) for k in ('PORT', 'RENDER', 'ZEABUR', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME'))
     if not is_cloud:
         threading.Timer(0.8, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()
