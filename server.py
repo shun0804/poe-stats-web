@@ -65,23 +65,18 @@ def parse_item(item):
         'Rarity:', 'Level:', 'Dex:', 'Str:', 'Int:',
     )
     mods = []
-    mod_entries = []
     implicit_count = 0
-    seen_implicits_header = False
-    remaining_implicits = 0
-    for raw_line in lines[2:]:
-        if raw_line.startswith('Implicits:'):
+    for x in lines[2:]:
+        if x.startswith('Implicits:'):
             try:
-                implicit_count = int(raw_line.split(':', 1)[1].strip())
+                implicit_count = int(x.split(':', 1)[1].strip())
             except ValueError:
-                implicit_count = 0
-            seen_implicits_header = True
-            remaining_implicits = implicit_count
+                pass
             continue
         if (
-            raw_line == base
-            or raw_line.startswith(ignore)
-            or raw_line.startswith((
+            x == base
+            or x.startswith(ignore)
+            or x.startswith((
                 'Has Influence:', 'Influence:', 'Tags:', 'ArmourBasePercentile:',
                 'EvasionBasePercentile:', 'EnergyShieldBasePercentile:',
                 'BasePercentile:', 'DefencePercentile:', 'CraftedMods:',
@@ -89,25 +84,15 @@ def parse_item(item):
             ))
         ):
             continue
-        low_raw = raw_line.lower()
-        has_implicit_tag = ('{implicit}' in low_raw) or ('{enchant}' in low_raw)
-        clean_x = re.sub(r'^(?:\{[^}]*\})+', '', raw_line).strip()
-        if clean_x and not clean_x.startswith(('Item ', 'Requires ')):
-            if seen_implicits_header and remaining_implicits > 0:
-                is_imp = True
-                remaining_implicits -= 1
-            elif has_implicit_tag:
-                is_imp = True
-            else:
-                is_imp = False
-            mods.append(clean_x)
-            mod_entries.append({'text': clean_x, 'implicit': is_imp})
+        if x.startswith('{') and '}' in x:
+            x = re.sub(r'^(?:\{[^}]*\})+', '', x).strip()
+        if x and not x.startswith(('Item ', 'Requires ')):
+            mods.append(x)
     return {
         'rarity': rarity,
         'name': name,
         'base': base,
         'mods': mods,
-        'mod_entries': mod_entries,
         'raw': '\n'.join(lines),
         'implicit_count': implicit_count,
     }
@@ -215,8 +200,13 @@ STAT_CACHE = {}
 CATALOGUE_DIR = DATA_DIR / 'trade_catalogues'
 CATALOGUE_DIR.mkdir(parents=True, exist_ok=True)
 CATALOGUE_URLS = {
-    'en': 'https://www.pathofexile.com/api/trade/data/stats',
-    'tw': 'https://pathofexile.tw/api/trade/data/stats',
+    'en': [
+        'https://www.pathofexile.com/api/trade/data/stats',
+        'https://pathofexile.com/api/trade/data/stats',
+    ],
+    'tw': [
+        'https://pathofexile.tw/api/trade/data/stats',
+    ],
 }
 
 STAT_KIND_LABELS = {
@@ -254,6 +244,58 @@ def upgrade_to_local_damage(sid, zh, tw_by_text):
     return chosen['id'], chosen['text']
 
 
+def extract_rolls(s):
+    return [float(v.replace(',', '')) for v in re.findall(r'(?<![\w#])[-+]?\d+(?:[.,]\d+)?', s)]
+
+
+def normalize_stat(s):
+    s = re.sub(r'\{[^}]+\}', '', s)
+    s = re.sub(r'\((?:implicit|crafted|fractured|enchant|scourge|crucible)\)', '', s, flags=re.I)
+    # Convert PoB roll ranges like (10-20) or (-5-10) into a single # placeholder
+    s = re.sub(r'\(\s*[-+]?\d+(?:[.,]\d+)?\s*[-–—]\s*[-+]?\d+(?:[.,]\d+)?\s*\)', '#', s)
+    s = re.sub(r'(?<![\w#])[-+]?\d+(?:[.,]\d+)?', '#', s)
+    s = s.replace('’', "'").replace('–', '-').replace('＋', '+')
+    s = re.sub(r'\s*\((?:local|global)\)\s*', ' ', s, flags=re.I)
+    s = re.sub(r'(?<!\w)\+(?=#)', '', s)
+    s = re.sub(r'[,:;]', ' ', s)
+    return re.sub(r'\s+', ' ', s).strip().lower()
+
+
+PLURAL_MAP = {
+    'charges': 'charge',
+    'sockets': 'socket',
+    'projectiles': 'projectile',
+    'targets': 'target',
+    'seconds': 'second',
+    'times': 'time',
+    'enemies': 'enemy',
+    'skills': 'skill',
+    'totems': 'totem',
+    'minions': 'minion',
+    'curses': 'curse',
+    'ailments': 'ailment',
+    'hits': 'hit',
+    'kills': 'kill',
+    'strikes': 'strike',
+    'attacks': 'attack',
+    'spells': 'spell',
+    'flasks': 'flask',
+    'jewels': 'jewel',
+    'brands': 'brand',
+    'traps': 'trap',
+    'mines': 'mine',
+    'allies': 'ally',
+}
+
+
+def canonical_stat(s):
+    n = normalize_stat(s)
+    n = re.sub(r'\b(?:an|a)\b(?=\s+[a-z])', '#', n)
+    words = re.findall(r'[a-z0-9#]+', n)
+    words = [PLURAL_MAP.get(w, w) for w in words]
+    return ' '.join(words)
+
+
 def parse_catalogue(data):
     if not isinstance(data, dict) or not isinstance(data.get('result'), list):
         raise ValueError('不是有效的交易詞綴 JSON（缺少 result）')
@@ -263,7 +305,15 @@ def parse_catalogue(data):
             continue
         for e in group.get('entries', []):
             if isinstance(e, dict) and isinstance(e.get('id'), str) and isinstance(e.get('text'), str):
-                entries.append({'id': e['id'], 'text': e['text'], 'type': group.get('id', '')})
+                entry = {'id': e['id'], 'text': e['text'], 'type': group.get('id', '')}
+                opt = e.get('option')
+                if isinstance(opt, dict) and isinstance(opt.get('options'), list):
+                    entry['options'] = [
+                        {'id': o['id'], 'text': o['text']}
+                        for o in opt['options']
+                        if isinstance(o, dict) and 'id' in o and isinstance(o.get('text'), str)
+                    ]
+                entries.append(entry)
     if len(entries) < 100:
         raise ValueError('交易詞綴資料不足，請使用完整 /api/trade/data/stats JSON')
     return entries
@@ -280,28 +330,112 @@ def fetch_catalogue(lang, refresh=False):
             return parse_catalogue(json.loads(file.read_text(encoding='utf-8'))), '本機快取'
         except Exception:
             pass
-    req = urllib.request.Request(
-        CATALOGUE_URLS[lang],
-        headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9' if lang == 'en' else 'zh-TW,zh;q=0.9',
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            raw = response.read(12_000_000)
-        data = json.loads(raw)
-        entries = parse_catalogue(data)
-        file.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
-        return entries, '官方線上下載'
-    except Exception:
-        if file.exists():
-            return (
-                parse_catalogue(json.loads(file.read_text(encoding='utf-8'))),
-                '本機快取（線上更新失敗）',
-            )
-        raise
+    last_err = None
+    for url in CATALOGUE_URLS[lang]:
+        req = urllib.request.Request(
+            url,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36',
+                'Accept': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9' if lang == 'en' else 'zh-TW,zh;q=0.9',
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                raw = response.read(12_000_000)
+            data = json.loads(raw)
+            entries = parse_catalogue(data)
+            file.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+            return entries, '官方線上下載'
+        except Exception as exc:
+            last_err = exc
+            continue
+    if file.exists():
+        return (
+            parse_catalogue(json.loads(file.read_text(encoding='utf-8'))),
+            '本機快取（線上更新失敗）',
+        )
+    raise last_err or ValueError('下載失敗')
+
+
+def build_stat_indexes(en_entries, tw_entries, zh_by_id):
+    allowed = ('explicit.', 'implicit.', 'enchant.', 'crafted.', 'pseudo.', 'fractured.', 'scourge.', 'crucible.', 'veiled.')
+    stats = [e for e in en_entries if e['id'].startswith(allowed)]
+    tw = [e for e in tw_entries if e['id'].startswith(allowed)]
+
+    by_text = {}
+    by_canonical = {}
+    by_subline = {}
+    token_index = {}
+    lookup = {}
+
+    tw_by_id_entry = {e['id']: e for e in tw}
+
+    for entry in stats:
+        sid = entry['id']
+        txt = entry['text']
+        lookup[sid] = entry
+
+        key = normalize_stat(txt)
+        by_text.setdefault(key, []).append(entry)
+
+        ckey = canonical_stat(txt)
+        by_canonical.setdefault(ckey, []).append(entry)
+
+        # Index individual lines of multi-line stats (e.g. Watcher's Eye / multi-line uniques)
+        if '\n' in txt:
+            for sub in txt.splitlines():
+                sub = sub.strip()
+                if sub:
+                    s_ckey = canonical_stat(sub)
+                    if s_ckey:
+                        by_subline.setdefault(s_ckey, []).append(entry)
+
+        for token in stat_tokens(txt):
+            token_index.setdefault(token, []).append(entry)
+
+        # Expand option-based stats (Cluster Jewels, Forbidden Flame/Flesh, Light of Meaning, Thread of Hope, etc.)
+        if entry.get('options') and '#' in txt:
+            tw_entry = tw_by_id_entry.get(sid)
+            tw_opts = {}
+            tw_tmpl = zh_by_id.get(sid, '')
+            if tw_entry and tw_entry.get('options'):
+                tw_opts = {o['id']: o['text'] for o in tw_entry['options']}
+            for opt in entry['options']:
+                opt_id = opt['id']
+                opt_en = opt['text'].replace('\n', ' / ').strip()
+                opt_zh = (tw_opts.get(opt_id) or opt_en).replace('\n', ' / ').strip()
+                exp_en = txt.replace('#', opt_en, 1)
+                exp_zh = tw_tmpl.replace('#', opt_zh, 1) if (tw_tmpl and '#' in tw_tmpl) else f"{tw_tmpl} {opt_zh}".strip()
+                virt = {
+                    'id': sid,
+                    'text': exp_en,
+                    'zh_override': exp_zh,
+                    'option': opt_id,
+                    'type': entry.get('type', ''),
+                }
+                v_key = normalize_stat(exp_en)
+                by_text.setdefault(v_key, []).append(virt)
+                v_ckey = canonical_stat(exp_en)
+                by_canonical.setdefault(v_ckey, []).append(virt)
+
+    tw_by_text = {}
+    tw_by_canonical = {}
+    for e in tw:
+        tw_by_text.setdefault(normalize_stat(e['text']), []).append(e)
+        tw_by_canonical.setdefault(canonical_stat(e['text']), []).append(e)
+
+    return {
+        'stats': stats,
+        'tw': tw,
+        'lookup': lookup,
+        'by_text': by_text,
+        'by_canonical': by_canonical,
+        'by_subline': by_subline,
+        'token_index': token_index,
+        'tw_by_text': tw_by_text,
+        'tw_by_canonical': tw_by_canonical,
+    }
 
 
 def fetch_trade_stats(refresh=False):
@@ -322,10 +456,7 @@ def fetch_trade_stats(refresh=False):
     tw = bylang.get('tw', [])
     zh_by_id = {e['id']: e['text'] for e in tw if re.search(r'[\u3400-\u9fff]', e['text'])}
     en_by_id = {e['id']: e['text'] for e in en}
-    tw_by_text = {}
-    for e in tw:
-        tw_by_text.setdefault(normalize_stat(e['text']), []).append(e)
-    entries = en
+    idx = build_stat_indexes(en, tw, zh_by_id)
     meta = {
         'english_count': len(en),
         'taiwan_count': len(tw),
@@ -335,15 +466,16 @@ def fetch_trade_stats(refresh=False):
         'english_available': bool(en),
     }
     STAT_CACHE.update(
-        entries=entries,
+        entries=en,
         zh_by_id=zh_by_id,
         en_by_id=en_by_id,
         tw_entries=tw,
-        tw_by_text=tw_by_text,
+        tw_by_text=idx['tw_by_text'],
+        idx=idx,
         meta=meta,
         expires=now + 86400,
     )
-    return entries, zh_by_id, meta
+    return en, zh_by_id, meta
 
 
 def search_trade_stats(query_str, kind_filter='all', limit=30):
@@ -414,21 +546,6 @@ def import_catalogue(lang, data):
     return {'language': lang, 'count': len(entries)}
 
 
-def extract_rolls(s):
-    return [float(v.replace(',', '')) for v in re.findall(r'(?<![\w#])[-+]?\d+(?:[.,]\d+)?', s)]
-
-
-def normalize_stat(s):
-    s = re.sub(r'\{[^}]+\}', '', s)
-    s = re.sub(r'\((?:implicit|crafted|fractured|enchant|scourge|crucible)\)', '', s, flags=re.I)
-    s = re.sub(r'(?<![\w#])[-+]?\d+(?:[.,]\d+)?', '#', s)
-    s = s.replace('’', "'").replace('–', '-').replace('＋', '+')
-    s = re.sub(r'\s*\((?:local|global)\)\s*', ' ', s, flags=re.I)
-    s = re.sub(r'(?<!\w)\+(?=#)', '', s)
-    s = re.sub(r'[,:;]', ' ', s)
-    return re.sub(r'\s+', ' ', s).strip().lower()
-
-
 LIGHT_OF_MEANING_MODS = {
     'maximum life': '範圍內的天賦同時給予 +# 最大生命',
     'maximum mana': '範圍內的天賦同時給予 +# 最大魔力',
@@ -465,14 +582,14 @@ STOPWORDS = {
 
 
 def stat_tokens(s):
-    s = normalize_stat(s)
+    s = canonical_stat(s)
     return {t for t in re.findall(r'[a-z]+', s) if t not in STOPWORDS}
 
 
 def stat_score(a, b):
-    a = normalize_stat(a)
-    b = normalize_stat(b)
-    if a == b:
+    ca = canonical_stat(a)
+    cb = canonical_stat(b)
+    if ca == cb:
         return 1.0
     ta, tb = stat_tokens(a), stat_tokens(b)
     if not ta or not tb:
@@ -481,7 +598,7 @@ def stat_score(a, b):
     if common < 2:
         return 0
     jaccard = common / len(ta | tb)
-    seq = SequenceMatcher(None, a, b).ratio()
+    seq = SequenceMatcher(None, ca, cb).ratio()
     return round(0.67 * jaccard + 0.33 * seq, 4)
 
 
@@ -501,16 +618,20 @@ def watcher_zh_hint(mod):
     return ''
 
 
+def entry_zh(entry, zh_by_id):
+    return entry.get('zh_override') or zh_by_id.get(entry['id'], '')
+
+
 def choose_exact_trade_stat(entries, zh_by_id, preferred='explicit'):
     priority = {'explicit': 0, 'fractured': 1, 'crafted': 2, 'implicit': 3, 'enchant': 4, 'pseudo': 5}
 
     def key(entry):
         kind = entry['id'].split('.', 1)[0]
-        zh = zh_by_id.get(entry['id'], '')
+        zh = entry_zh(entry, zh_by_id)
         local_bonus = 0 if is_local_added_dmg_zh(zh) else 1
         return (0 if kind == preferred else 1, local_bonus, priority.get(kind, 9), entry['id'])
 
-    options = [x for x in entries if zh_by_id.get(x['id'])]
+    options = [x for x in entries if entry_zh(x, zh_by_id)]
     return sorted(options, key=key)[0] if options else None
 
 
@@ -533,56 +654,57 @@ def match_mods(mods):
         zh_by_id = {}
         meta = {}
         catalogue_error = '無法取得交易詞綴資料：' + str(exc)[:180]
-    tw = STAT_CACHE.get('tw_entries', [])
-    allowed = ('explicit.', 'implicit.', 'enchant.', 'crafted.', 'pseudo.', 'fractured.', 'scourge.', 'crucible.', 'veiled.')
-    stats = [e for e in stats if e['id'].startswith(allowed)]
-    tw = [e for e in tw if e['id'].startswith(allowed)]
-    by_text = {}
-    token_index = {}
-    for entry in stats:
-        key = normalize_stat(entry['text'])
-        by_text.setdefault(key, []).append(entry)
-        for token in stat_tokens(entry['text']):
-            token_index.setdefault(token, []).append(entry)
-    tw_by_text = {}
-    for e in tw:
-        tw_by_text.setdefault(normalize_stat(e['text']), []).append(e)
+
+    idx = STAT_CACHE.get('idx') or build_stat_indexes(stats, STAT_CACHE.get('tw_entries', []), zh_by_id)
+    by_text = idx['by_text']
+    by_canonical = idx['by_canonical']
+    by_subline = idx['by_subline']
+    token_index = idx['token_index']
+    lookup = idx['lookup']
+    tw_by_text = idx['tw_by_text']
+    tw_by_canonical = idx['tw_by_canonical']
+
     output = []
     for item_entry in mods:
-        if isinstance(item_entry, dict):
-            mod = item_entry.get('text', '')
-            is_implicit = bool(item_entry.get('implicit', False))
-        else:
-            mod = item_entry
-            is_implicit = False
+        mod = item_entry.get('text', '') if isinstance(item_entry, dict) else item_entry
         if not isinstance(mod, str) or len(mod) > 500:
             continue
-        if '(implicit)' in mod.lower():
-            is_implicit = True
-        pref_kind = 'implicit' if is_implicit else detect_mod_preferred_kind(mod)
+        pref_kind = detect_mod_preferred_kind(mod)
         norm = normalize_stat(mod)
+        canon = canonical_stat(mod)
+
+        # 1. Exact normalized English match (including expanded options)
         choices = by_text.get(norm, [])
+        # 2. Canonical English match (handles (10-20) ranges, singular/plural, a/an)
+        if not choices:
+            choices = by_canonical.get(canon, [])
+        # 3. Direct Chinese match (for TW PoE client pasted mods)
         if not choices and re.search(r'[\u3400-\u9fff]', mod):
-            choices = tw_by_text.get(norm, [])
+            choices = tw_by_text.get(norm, []) or tw_by_canonical.get(canon, [])
+        # 4. Multi-line subline match (for split multi-line mods)
+        if not choices:
+            choices = by_subline.get(canon, [])
+
         known_zh = known_mod_zh(mod) or watcher_zh_hint(mod)
         suggestions = []
-        if not choices and stats:
+
+        # 5. Fuzzy token + sequence similarity match
+        if not choices and idx['stats']:
             tokens = stat_tokens(mod)
             candidate_ids = Counter(e['id'] for t in tokens for e in token_index.get(t, []))
-            lookup = {e['id']: e for e in stats}
             scored = []
             for sid, overlap in candidate_ids.items():
-                if overlap < 2:
+                if overlap < 2 and len(tokens) >= 2:
                     continue
                 e = lookup[sid]
                 score = stat_score(mod, e['text'])
-                if score >= 0.52:
+                if score >= 0.50:
                     scored.append((score, e))
             scored.sort(key=lambda z: -z[0])
-            suggestions = []
+
             seen_sug = set()
             for score, e in scored:
-                raw_zh = zh_by_id.get(e['id'], '')
+                raw_zh = entry_zh(e, zh_by_id)
                 if not raw_zh:
                     continue
                 up_id, up_zh = upgrade_to_local_damage(e['id'], raw_zh, tw_by_text)
@@ -592,30 +714,35 @@ def match_mods(mods):
                 suggestions.append({'id': up_id, 'text': e['text'], 'zh': up_zh, 'score': round(score * 100)})
                 if len(suggestions) >= 8:
                     break
-            exact_ids = {
-                e['id']: e for score, e in scored if score >= 0.999999 and zh_by_id.get(e['id'])
-            }
-            if exact_ids:
-                choices = list(exact_ids.values())
-            elif scored and scored[0][0] >= 0.97 and (len(scored) == 1 or scored[0][0] - scored[1][0] >= 0.15):
-                choices = [scored[0][1]]
+
+            # Auto-match high-confidence fuzzy results (grouping same-text explicit/implicit variants)
+            if scored and scored[0][0] >= 0.82:
+                top_score = scored[0][0]
+                top_group = [e for sc, e in scored if top_score - sc <= 0.03 and entry_zh(e, zh_by_id)]
+                top_canons = {canonical_stat(e['text']) for e in top_group}
+                if len(top_canons) == 1:
+                    choices = top_group
+
         if not choices and known_zh:
             choices = tw_by_text.get(normalize_stat(known_zh), [])
-        ids = {x['id'] for x in choices}
+
+        ids = {(x['id'], x.get('option')) for x in choices}
         if len(ids) == 1:
-            sid = next(iter(ids))
-            zh = zh_by_id.get(sid, '') or known_zh
-            if not is_implicit:
+            c0 = choices[0]
+            sid = c0['id']
+            opt_val = c0.get('option')
+            zh = entry_zh(c0, zh_by_id) or known_zh
+            if opt_val is None:
                 sid, zh = upgrade_to_local_damage(sid, zh, tw_by_text)
-            k = 'implicit' if is_implicit else sid.split('.', 1)[0]
+            k = sid.split('.', 1)[0]
             output.append({
                 'mod': mod,
-                'isImplicit': is_implicit,
                 'status': 'matched',
                 'id': sid,
+                'option': opt_val,
                 'kind': k,
-                'kindLabel': '固定屬性' if is_implicit else STAT_KIND_LABELS.get(k, k),
-                'text': choices[0]['text'],
+                'kindLabel': STAT_KIND_LABELS.get(k, k),
+                'text': c0['text'],
                 'zh': zh,
                 'rolls': extract_rolls(mod),
                 'translation_status': 'verified' if zh else 'unavailable',
@@ -626,27 +753,30 @@ def match_mods(mods):
             opts = []
             seen_opt = set()
             for x in choices[:12]:
-                if is_implicit:
-                    ox_id, ox_zh = x['id'], zh_by_id.get(x['id'], known_zh)
+                x_zh = entry_zh(x, zh_by_id) or known_zh
+                if x.get('option') is None:
+                    ox_id, ox_zh = upgrade_to_local_damage(x['id'], x_zh, tw_by_text)
                 else:
-                    ox_id, ox_zh = upgrade_to_local_damage(x['id'], zh_by_id.get(x['id'], known_zh), tw_by_text)
-                if ox_id in seen_opt:
+                    ox_id, ox_zh = x['id'], x_zh
+                sig = (ox_id, x.get('option'))
+                if sig in seen_opt:
                     continue
-                seen_opt.add(ox_id)
-                opts.append({'id': ox_id, 'zh': ox_zh, 'text': x['text'], 'score': 100})
+                seen_opt.add(sig)
+                opts.append({'id': ox_id, 'option': x.get('option'), 'zh': ox_zh, 'text': x['text'], 'score': 100})
             if pick:
-                if is_implicit:
-                    pid, pzh = pick['id'], zh_by_id[pick['id']]
+                p_zh = entry_zh(pick, zh_by_id)
+                if pick.get('option') is None:
+                    pid, pzh = upgrade_to_local_damage(pick['id'], p_zh, tw_by_text)
                 else:
-                    pid, pzh = upgrade_to_local_damage(pick['id'], zh_by_id[pick['id']], tw_by_text)
-                k = 'implicit' if is_implicit else pid.split('.', 1)[0]
+                    pid, pzh = pick['id'], p_zh
+                k = pid.split('.', 1)[0]
                 output.append({
                     'mod': mod,
-                    'isImplicit': is_implicit,
                     'status': 'matched',
                     'id': pid,
+                    'option': pick.get('option'),
                     'kind': k,
-                    'kindLabel': '固定屬性' if is_implicit else STAT_KIND_LABELS.get(k, k),
+                    'kindLabel': STAT_KIND_LABELS.get(k, k),
                     'text': pick['text'],
                     'zh': pzh,
                     'rolls': extract_rolls(mod),
@@ -657,7 +787,6 @@ def match_mods(mods):
             else:
                 output.append({
                     'mod': mod,
-                    'isImplicit': is_implicit,
                     'status': 'ambiguous',
                     'reason': '同一模板存在多個 ID，但沒有可靠中文對照',
                     'zh': known_zh,
@@ -667,13 +796,12 @@ def match_mods(mods):
         else:
             reason = catalogue_error or (
                 '英文交易詞綴資料未載入，請先下載或匯入完整英文 JSON'
-                if not stats
+                if not idx['stats']
                 else '官方詞綴模板無法唯一對應'
             )
-            preview = suggestions[0]['zh'] if suggestions and suggestions[0]['score'] >= 70 else ''
+            preview = suggestions[0]['zh'] if suggestions and suggestions[0]['score'] >= 60 else ''
             output.append({
                 'mod': mod,
-                'isImplicit': is_implicit,
                 'status': 'unmatched',
                 'reason': reason,
                 'zh': known_zh or preview,
@@ -685,7 +813,7 @@ def match_mods(mods):
 
 
 def parse_pasted_item_text(raw_text):
-    """Parse PoE Ctrl+C item text (EN or TW), distinguishing implicit vs explicit blocks."""
+    """Parse PoE Ctrl+C item text (EN or TW) or plain modifier lines."""
     raw_lines = [x.strip() for x in str(raw_text or '').splitlines() if x.strip()]
     if not raw_lines:
         raise ValueError('請貼上遊戲內 Ctrl+C 複製的物品文字或詞綴內容')
@@ -737,45 +865,21 @@ def parse_pasted_item_text(raw_text):
         'Unidentified', '未鑑定', 'Historic',
     }
 
-    # Split into blocks separated by '--------' to distinguish implicit vs explicit blocks
-    blocks = []
-    cur_block = []
+    mod_lines = []
     start_idx = rarity_idx + 1 if has_header else 0
     for ln in raw_lines[start_idx:]:
-        if ln.startswith('---'):
-            if cur_block:
-                blocks.append(cur_block)
-                cur_block = []
-            continue
-        if ln in ignore_exact or ln.startswith(ignore_prefixes):
+        if ln.startswith('---') or ln in ignore_exact or ln.startswith(ignore_prefixes):
             continue
         if has_header and (ln == name or ln == base):
             continue
         if ln.startswith('{') and '}' in ln:
             ln = re.sub(r'^(?:\{[^}]*\})+', '', ln).strip()
         if ln:
-            cur_block.append(ln)
-    if cur_block:
-        blocks.append(cur_block)
+            mod_lines.append(ln)
 
-    # Filter out single-word base type lines in block 0 (e.g., '單手劍', 'Dusk Blade')
-    mod_blocks = []
-    for b_idx, blk in enumerate(blocks):
-        if has_header and b_idx == 0 and len(blk) == 1 and not re.search(r'[0-9+#%]', blk[0]):
-            continue
-        mod_blocks.append(blk)
-
-    mod_items = []
-    if len(mod_blocks) >= 2:
-        # Blocks before the last modifier block are implicits/enchants
-        for blk in mod_blocks[:-1]:
-            for ln in blk:
-                mod_items.append({'text': ln, 'implicit': True})
-        for ln in mod_blocks[-1]:
-            mod_items.append({'text': ln, 'implicit': '(implicit)' in ln.lower()})
-    elif len(mod_blocks) == 1:
-        for ln in mod_blocks[0]:
-            mod_items.append({'text': ln, 'implicit': '(implicit)' in ln.lower()})
+    # Filter out single-word base type line right after header (e.g. '單手劍')
+    if has_header and mod_lines and not re.search(r'[0-9+#%]', mod_lines[0]) and len(mod_lines[0]) <= 12:
+        mod_lines = mod_lines[1:]
 
     resolved_zh = ''
     is_foulborn = False
@@ -802,7 +906,7 @@ def parse_pasted_item_text(raw_text):
                 r = resolve_name(target_base, 'base', allow_web=True)
                 resolved_zh = r.get('zh') or target_base
 
-    matched = match_mods(mod_items)
+    matched = match_mods(mod_lines)
     return {
         'kind': kind,
         'itemName': resolved_zh,
@@ -815,7 +919,6 @@ def parse_pasted_item_text(raw_text):
 
 def sanitize_tw_unique_name(name):
     name = name.strip()
-    # Foulborn items use the base unique name on TW Trade API (e.g., '穢生影殞' -> '影殞')
     name = re.sub(r'^穢生[．·\s]*', '', name).strip()
     maps = get_official_item_map()
     valid_uniques = maps.get('tw_unique_names') or set()
@@ -883,7 +986,7 @@ def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_
                         raise ValueError('詞綴數值條件無效')
                     obj = {'id': f['id'], 'disabled': False}
                     value = {}
-                    for field in ('min', 'max'):
+                    for field in ('min', 'max', 'option'):
                         v = f.get(field)
                         if v is not None and v != '':
                             if (
@@ -1275,8 +1378,13 @@ threading.Thread(target=monitor_worker_loop, daemon=True).start()
 ITEM_CACHE = {}
 ITEM_CACHE_LOCK = threading.Lock()
 ITEM_URLS = {
-    'en': 'https://www.pathofexile.com/api/trade/data/items',
-    'tw': 'https://pathofexile.tw/api/trade/data/items',
+    'en': [
+        'https://www.pathofexile.com/api/trade/data/items',
+        'https://pathofexile.com/api/trade/data/items',
+    ],
+    'tw': [
+        'https://pathofexile.tw/api/trade/data/items',
+    ],
 }
 
 
@@ -1291,26 +1399,28 @@ def fetch_raw_items(lang, refresh=False):
             return json.loads(file.read_text(encoding='utf-8'))
         except Exception:
             pass
-    req = urllib.request.Request(
-        ITEM_URLS[lang],
-        headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9' if lang == 'en' else 'zh-TW,zh;q=0.9',
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.loads(r.read(15_000_000))
-        if isinstance(data, dict) and isinstance(data.get('result'), list):
-            file.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
-            return data
-    except Exception:
-        if file.exists():
-            try:
-                return json.loads(file.read_text(encoding='utf-8'))
-            except Exception:
-                pass
+    for url in ITEM_URLS[lang]:
+        req = urllib.request.Request(
+            url,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36',
+                'Accept': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9' if lang == 'en' else 'zh-TW,zh;q=0.9',
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = json.loads(r.read(15_000_000))
+            if isinstance(data, dict) and isinstance(data.get('result'), list):
+                file.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+                return data
+        except Exception:
+            continue
+    if file.exists():
+        try:
+            return json.loads(file.read_text(encoding='utf-8'))
+        except Exception:
+            pass
     return None
 
 
@@ -1565,7 +1675,6 @@ def resolve_name(name, kind, allow_web=True):
             if low.startswith(en_pre):
                 inner_res = resolve_name(name[len(en_pre):].strip(), 'unique', allow_web=True)
                 if inner_res.get('status') == 'verified' and inner_res.get('zh'):
-                    # Keep the Foulborn display prefix for UI; search query strips it later
                     inner_clean = sanitize_tw_unique_name(inner_res['zh'])
                     return {'en': name, 'zh': zh_pre + inner_clean, 'status': 'verified', 'source': inner_res.get('source')}
 
@@ -1655,7 +1764,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
         if route == '/health':
-            self.reply({'ok': True, 'version': '2.30-web'})
+            self.reply({'ok': True, 'version': '2.31-web'})
             return
         if route == '/api/catalogue-status':
             try:
@@ -1925,7 +2034,7 @@ if __name__ == '__main__':
     host = '0.0.0.0'
     port = int(os.environ.get('PORT', '8766'))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'POE 裝備統計 V2.30 (固定屬性鎖定不納入搜尋 + 穢生版本智慧提示): http://{host}:{port}/')
+    print(f'POE 裝備統計 V2.31 (解除固定屬性鎖定 + 全面提升詞綴中文翻譯率): http://{host}:{port}/')
     is_cloud = any(os.environ.get(k) for k in ('PORT', 'RENDER', 'ZEABUR', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME'))
     if not is_cloud:
         threading.Timer(0.8, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()

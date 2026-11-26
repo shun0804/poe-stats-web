@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>POE 裝備統計助手 V2.30</title>
+<title>POE 裝備統計助手 V2.31</title>
 <style>
 :root{
   --nav-bg:#2b3643;
@@ -314,12 +314,6 @@ tr.mod-drawer-row td{
 }
 .modrow:last-child{border-bottom:0}
 .modrow:hover{background:#f8fafc}
-.modrow.is-implicit{
-  background:#fafafa;
-  opacity:.78;
-}
-.modrow.is-implicit .modcheck{cursor:not-allowed}
-.modrow.is-implicit .modlabel{cursor:default;color:var(--text-regular)}
 .modrow .modcheck{width:20px;height:20px;accent-color:var(--mint);cursor:pointer;margin:0;flex:none}
 .modrow .modlabel{flex:1;font-size:16px;color:var(--text-main);cursor:pointer}
 .modrow .modlabel.pending{color:#b45309}
@@ -439,7 +433,7 @@ tr.mod-drawer-row td{
     <div class="brand">
       <span class="brand-logo">P</span>
       <span>POE 裝備統計</span>
-      <span class="ver-pill">V2.30</span>
+      <span class="ver-pill">V2.31</span>
     </div>
   </div>
   <div class="topbar-right">
@@ -1122,8 +1116,6 @@ function groupedForTab(targetTab){
       if(x.kind==='rare'||x.kind==='unique'){
         v.variants.push({
           mods:x.mods||[],
-          implicit_count:x.implicit_count||0,
-          mod_entries:x.mod_entries||null,
           source:c.source||c.id,
           originalName:x.name,
         });
@@ -1153,18 +1145,24 @@ function buildSearchPayload(x){
   }
   if(!league)throw Error('請填入台服聯盟名稱');
   const dKey=detailKey(x);
-  // 只有在詞綴篩選目前處於「展開」狀態時，才一併帶入勾選的詞綴（且排除固定屬性）；收合後則直接搜尋名稱
+  // 只有在詞綴篩選目前處於「展開」狀態時，才一併帶入勾選的詞綴；收合後則直接搜尋名稱
   const isDrawerOpen=(expandedDetailKey===dKey);
   const detail=isDrawerOpen?jewelDetails[dKey]:null;
-  const selected=((tab==='gear'||tab==='jewels'||tab==='rare')&&detail)?detail.filter(z=>z.checked&&z.id&&!z.isImplicit):[];
+  const selected=((tab==='gear'||tab==='jewels'||tab==='rare')&&detail)?detail.filter(z=>z.checked&&z.id):[];
   const statIds=selected.map(z=>z.id);
   const statFilters=selected.map(z=>{
-    const hasMin=z.minValue!==''&&z.minValue!==null&&z.minValue!==undefined&&!isNaN(Number(z.minValue));
-    return {id:z.id,...(hasMin?{min:Number(z.minValue)}:{})};
+    const obj={id:z.id};
+    if(z.option!==null&&z.option!==undefined){
+      obj.option=z.option;
+    }else{
+      const hasMin=z.minValue!==''&&z.minValue!==null&&z.minValue!==undefined&&!isNaN(Number(z.minValue));
+      if(hasMin)obj.min=Number(z.minValue);
+    }
+    return obj;
   });
   const condParts=selected.map(z=>{
     const hasMin=z.minValue!==''&&z.minValue!==null&&z.minValue!==undefined&&!isNaN(Number(z.minValue));
-    return hasMin?`${z.zh} (≥ ${z.minValue})`:z.zh;
+    return (z.option===null||z.option===undefined)&&hasMin?`${z.zh} (≥ ${z.minValue})`:z.zh;
   });
 
   const rawDisplayName=tab==='rare'?(localizedBase(x)||x.name):(tr?.zh||x.name);
@@ -1193,13 +1191,12 @@ function buildInlineDrawer(x, i, dKey){
   const loading=!!modLoading[dKey];
   const err=modErrors[dKey];
   const arr=jewelDetails[dKey]||[];
-  const explicitSelectable=arr.filter(m=>m.id&&!m.isImplicit).length;
-  const implicitCount=arr.filter(m=>m.isImplicit).length;
-  const checkedCount=arr.filter(m=>m.checked&&m.id&&!m.isImplicit).length;
+  const selectableCount=arr.filter(m=>m.id).length;
+  const checkedCount=arr.filter(m=>m.checked&&m.id).length;
 
   let headInfo='正在比對官方交易詞綴資料…';
   if(!loading&&!err){
-    headInfo=`可選外顯詞綴 ${explicitSelectable} 條${implicitCount?`（已自動鎖定 ${implicitCount} 條固定屬性，不納入搜尋）`:''}`;
+    headInfo=`已對應 ${selectableCount} / ${arr.length} 條詞綴（展開期間搜尋或監控將套用勾選條件；收合後則僅搜名稱）`;
   }else if(err){
     headInfo='讀取詞綴失敗';
   }
@@ -1214,26 +1211,21 @@ function buildInlineDrawer(x, i, dKey){
   }else{
     bodyHtml=arr.map((m,mi)=>{
       const name=m.zh?esc(m.zh):esc(m.mod);
-      if(m.isImplicit){
-        return `<div class="modrow is-implicit">
-          <input class="modcheck" type="checkbox" id="modcheck-${i}-${mi}" disabled>
-          <label class="modlabel" for="modcheck-${i}-${mi}">
-            <span class="affix-badge affix-implicit">固定屬性</span>${name}
-            <small>固定屬性（系統自動鎖定，不納入搜尋條件）</small>
-          </label>
-        </div>`;
-      }
       const candidates=(m.suggestions||[]).filter(z=>z.zh);
       const rollHint=(m.rolls&&m.rolls.length)?m.rolls[0]:null;
-      const minBox=m.id?`<div class="mod-min-box">
+      const hasOpt=(m.option!==null&&m.option!==undefined);
+      const minBox=(m.id&&!hasOpt)?`<div class="mod-min-box">
         <span style="font-size:13px;color:var(--text-muted)">最小≥</span>
         <input type="number" step="any" data-min-key="${esc(dKey)}" data-min-mi="${mi}" value="${esc(m.minValue??'')}" placeholder="${rollHint!==null?'PoB:'+rollHint:'不限'}">
         ${rollHint!==null?`<button type="button" class="btn btn-default btn-xs" data-fill-roll="${esc(dKey)}" data-fill-mi="${mi}" data-roll="${rollHint}" title="帶入 PoB 數值">帶入 ${rollHint}</button>`:''}
       </div>`:'';
+      const subHint=!m.id
+        ?(m.zh?'<small>以上為相近中文翻譯參考，請在右側進階設定選定對應交易詞綴後勾選</small>':'<small>尚未找到可用的交易詞綴，請在進階設定中確認</small>')
+        :'';
       const advanced=(!m.id)?`<details class="modchoice"><summary style="cursor:pointer;color:var(--sky);font-size:14px">進階設定</summary>${candidates.length?`<select data-choice-key="${esc(dKey)}" data-choice-mi="${mi}" style="margin-top:6px"><option value="" ${m.id?'':'selected'}>請選擇中文詞綴</option>${candidates.map(c=>`<option value="${esc(c.id)}" ${m.id===c.id?'selected':''}>${esc(c.zh)}（${c.score}%）</option>`).join('')}</select>`:''}<small style="display:block;color:var(--text-muted);margin-top:4px">${esc(m.mod)}</small></details>`:'';
       return `<div class="modrow">
         <input class="modcheck" type="checkbox" id="modcheck-${i}-${mi}" data-mod-key="${esc(dKey)}" data-mi="${mi}" ${m.checked?'checked':''} ${m.id?'':'disabled'}>
-        <label class="modlabel ${m.id?'':'pending'}" for="modcheck-${i}-${mi}">${name}${m.id?'':'<small>尚未找到可用的交易詞綴，請在進階設定中確認</small>'}</label>
+        <label class="modlabel ${m.id?'':'pending'}" for="modcheck-${i}-${mi}">${name}${subHint}</label>
         ${minBox}
         ${advanced}
       </div>`;
@@ -1246,13 +1238,13 @@ function buildInlineDrawer(x, i, dKey){
         <div class="mod-drawer-head">
           <span class="mod-drawer-info">${esc(headInfo)}</span>
           <div class="mod-drawer-tools">
-            ${(!loading&&!err&&explicitSelectable>0)?`<button class="btn btn-default btn-xs" data-select-all="${esc(dKey)}">全選</button><button class="btn btn-default btn-xs" data-clear-all="${esc(dKey)}">全不選</button>`:''}
+            ${(!loading&&!err&&selectableCount>0)?`<button class="btn btn-default btn-xs" data-select-all="${esc(dKey)}">全選</button><button class="btn btn-default btn-xs" data-clear-all="${esc(dKey)}">全不選</button>`:''}
             <button class="btn btn-default btn-xs" data-close-drawer="1">收合 ▲</button>
           </div>
         </div>
         <div>${bodyHtml}</div>
         <div class="modbottom">
-          <span style="font-size:15px;color:var(--text-regular);font-weight:600" id="drawer-count-${i}">已選取 ${checkedCount} 條外顯詞綴</span>
+          <span style="font-size:15px;color:var(--text-regular);font-weight:600" id="drawer-count-${i}">已選取 ${checkedCount} 條詞綴</span>
           <div class="modbottom-actions">
             <button class="btn btn-amber-outline btn-sm" data-drawer-monitor="${i}" ${loading?'disabled':''}>🔔 加入 10 分鐘監控</button>
             <button class="btn btn-mint btn-sm" data-drawer-trade="${i}" ${loading?'disabled':''}>台服一鍵搜尋已勾選詞綴</button>
@@ -1334,43 +1326,15 @@ async function toggleInlineMods(x){
   }
   expandedDetailKey=dKey;
 
-  // Combine mods across variants while preserving implicit vs explicit flag
-  const modMap=new Map();
-  for(const v of variants){
-    if(Array.isArray(v.mod_entries)&&v.mod_entries.length){
-      for(const me of v.mod_entries){
-        if(!me||!me.text)continue;
-        const prev=modMap.get(me.text);
-        modMap.set(me.text,{text:me.text,implicit:Boolean(me.implicit||(prev&&prev.implicit))});
-      }
-    }else{
-      const impCnt=Number(v.implicit_count)||0;
-      (v.mods||[]).forEach((txt,idx)=>{
-        if(!txt)return;
-        const isImp=(idx<impCnt);
-        const prev=modMap.get(txt);
-        modMap.set(txt,{text:txt,implicit:Boolean(isImp||(prev&&prev.implicit))});
-      });
-    }
-  }
-  const allEntries=[...modMap.values()];
+  const all=[...new Set(variants.flatMap(v=>v.mods||[]))];
 
   modLoading[dKey]=true;
   delete modErrors[dKey];
   renderLinks();
 
   try{
-    const result=await api('/api/match-mods',{mods:allEntries});
+    const result=await api('/api/match-mods',{mods:all});
     jewelDetails[dKey]=result.mods.map(m=>{
-      const isImp=Boolean(m.isImplicit);
-      if(isImp){
-        return {
-          ...m,
-          isImplicit:true,
-          checked:false,
-          minValue:'',
-        };
-      }
       const exact=(m.suggestions||[]).filter(c=>c.score===100&&c.zh);
       const ranked=exact.slice().sort((a,b)=>{
         const priority=id=>({explicit:0,fractured:1,crafted:2,implicit:3,enchant:4,pseudo:5}[String(id).split('.')[0]]??9);
@@ -1381,8 +1345,8 @@ async function toggleInlineMods(x){
       const chosenZh=m.id?m.zh:(auto?.zh||m.zh||'');
       return {
         ...m,
-        isImplicit:false,
         id:chosenId,
+        option:m.option??null,
         zh:chosenZh,
         status:auto?'matched':m.status,
         translation_status:auto?'verified':m.translation_status,
@@ -1464,7 +1428,7 @@ function renderLinks(){
 
   document.querySelectorAll('[data-select-all]').forEach(b=>b.onclick=()=>{
     const arr=jewelDetails[b.dataset.selectAll]||[];
-    arr.forEach(m=>{if(m.id&&!m.isImplicit)m.checked=true});
+    arr.forEach(m=>{if(m.id)m.checked=true});
     renderLinks();
   });
 
@@ -1477,17 +1441,17 @@ function renderLinks(){
   document.querySelectorAll('[data-mod-key]').forEach(b=>b.onchange=()=>{
     const arr=jewelDetails[b.dataset.modKey]||[];
     const m=arr[+b.dataset.mi];
-    if(m&&!m.isImplicit)m.checked=b.checked;
-    const n=arr.filter(z=>z.checked&&z.id&&!z.isImplicit).length;
+    if(m)m.checked=b.checked;
+    const n=arr.filter(z=>z.checked&&z.id).length;
     const rowIdx=rows.findIndex(r=>detailKey(r)===b.dataset.modKey);
     const countEl=$('drawer-count-'+rowIdx);
-    if(countEl)countEl.textContent='已選取 '+n+' 條外顯詞綴';
+    if(countEl)countEl.textContent='已選取 '+n+' 條詞綴';
   });
 
   document.querySelectorAll('[data-min-key]').forEach(inp=>inp.oninput=()=>{
     const arr=jewelDetails[inp.dataset.minKey]||[];
     const m=arr[+inp.dataset.minMi];
-    if(m&&!m.isImplicit){
+    if(m){
       m.minValue=inp.value;
       if(inp.value!==''&&m.id)m.checked=true;
     }
@@ -1496,7 +1460,7 @@ function renderLinks(){
   document.querySelectorAll('[data-fill-roll]').forEach(btn=>btn.onclick=()=>{
     const arr=jewelDetails[btn.dataset.fillRoll]||[];
     const m=arr[+btn.dataset.fillMi];
-    if(m&&!m.isImplicit){
+    if(m){
       m.minValue=btn.dataset.roll;
       if(m.id)m.checked=true;
       renderLinks();
@@ -1506,7 +1470,7 @@ function renderLinks(){
   document.querySelectorAll('[data-choice-key]').forEach(b=>b.onchange=()=>{
     const arr=jewelDetails[b.dataset.choiceKey]||[];
     const m=arr[+b.dataset.choiceMi];
-    if(!m||m.isImplicit)return;
+    if(!m)return;
     const pick=(m.suggestions||[]).find(c=>c.id===b.value);
     m.id=pick?.id||null;
     m.zh=pick?.zh||m.zh;
@@ -1666,17 +1630,14 @@ $('manualParseBtn').onclick=async()=>{
       $('manualItemName').value=p.itemName;
       updateManualItemHint();
     }
-    let added=0,skippedImplicit=0,unmatched=0;
+    let added=0,unmatched=0;
     for(const m of (p.mods||[])){
-      if(m.isImplicit){
-        skippedImplicit++;
-        continue;
-      }
       if(m.id){
-        if(!manualSelectedStats.some(s=>s.id===m.id)&&manualSelectedStats.length<12){
-          const roll=(m.rolls&&m.rolls.length)?String(m.rolls[0]):'';
+        if(!manualSelectedStats.some(s=>s.id===m.id&&s.option===m.option)&&manualSelectedStats.length<12){
+          const roll=(m.option===null||m.option===undefined)&&(m.rolls&&m.rolls.length)?String(m.rolls[0]):'';
           manualSelectedStats.push({
             id:m.id,
+            option:m.option??null,
             zh:m.zh||m.mod,
             en:m.text||m.mod,
             kind:m.kind||'explicit',
@@ -1691,10 +1652,7 @@ $('manualParseBtn').onclick=async()=>{
       }
     }
     renderManualSelectedStats();
-    const extraNotes=[];
-    if(skippedImplicit)extraNotes.push(`已自動略過 ${skippedImplicit} 條固定屬性`);
-    if(unmatched)extraNotes.push(`另有 ${unmatched} 條未能自動對應`);
-    msg(`解析完成：已自動帶入 ${added} 條外顯詞綴${extraNotes.length?`（${extraNotes.join('，')}）`:''}。`,p.isFoulborn?'warn':false);
+    msg(`解析完成：已自動帶入 ${added} 條詞綴條件${unmatched?`（另有 ${unmatched} 條未能自動對應，可於上方搜尋框手動補強）`:''}。`,p.isFoulborn?'warn':false);
   }catch(e){
     msg(e.message,true);
   }finally{
@@ -1709,19 +1667,23 @@ function renderManualSelectedStats(){
     host.innerHTML='<div style="text-align:center;padding:28px;color:var(--text-muted);font-size:15px;border:1px dashed #dcdfe6;border-radius:6px">尚未加入任何詞綴條件（可於上方搜尋詞綴加入；若為傳奇裝備，也可不加詞綴直接監控新上架）</div>';
     return;
   }
-  host.innerHTML=manualSelectedStats.map((st,idx)=>`<div class="selected-mod-card">
-    <div class="selected-mod-text">
-      <div><span class="affix-badge affix-${esc(st.kind||'explicit')}">${esc(st.kindLabel||'外顯')}</span><strong style="color:var(--text-main);font-size:16px">${esc(st.zh)}</strong></div>
-      ${st.en?`<div style="font-size:13px;color:var(--text-muted);margin-top:2px">${esc(st.en)}</div>`:''}
-    </div>
-    <div class="selected-mod-ranges">
-      <span style="font-size:13px;color:var(--text-muted)">最小 ≥</span>
-      <input type="number" step="any" data-ms-min="${idx}" value="${esc(st.minValue??'')}" placeholder="不限">
-      <span style="font-size:13px;color:var(--text-muted)">最大 ≤</span>
-      <input type="number" step="any" data-ms-max="${idx}" value="${esc(st.maxValue??'')}" placeholder="不限">
-      <button type="button" class="btn btn-danger-outline btn-xs" data-ms-del="${idx}" title="移除此詞綴">✕</button>
-    </div>
-  </div>`).join('');
+  host.innerHTML=manualSelectedStats.map((st,idx)=>{
+    const hasOpt=(st.option!==null&&st.option!==undefined);
+    const rangeInputs=hasOpt
+      ?`<button type="button" class="btn btn-danger-outline btn-xs" data-ms-del="${idx}" title="移除此詞綴">✕</button>`
+      :`<span style="font-size:13px;color:var(--text-muted)">最小 ≥</span>
+        <input type="number" step="any" data-ms-min="${idx}" value="${esc(st.minValue??'')}" placeholder="不限">
+        <span style="font-size:13px;color:var(--text-muted)">最大 ≤</span>
+        <input type="number" step="any" data-ms-max="${idx}" value="${esc(st.maxValue??'')}" placeholder="不限">
+        <button type="button" class="btn btn-danger-outline btn-xs" data-ms-del="${idx}" title="移除此詞綴">✕</button>`;
+    return `<div class="selected-mod-card">
+      <div class="selected-mod-text">
+        <div><span class="affix-badge affix-${esc(st.kind||'explicit')}">${esc(st.kindLabel||'外顯')}</span><strong style="color:var(--text-main);font-size:16px">${esc(st.zh)}</strong></div>
+        ${st.en?`<div style="font-size:13px;color:var(--text-muted);margin-top:2px">${esc(st.en)}</div>`:''}
+      </div>
+      <div class="selected-mod-ranges">${rangeInputs}</div>
+    </div>`;
+  }).join('');
 
   host.querySelectorAll('[data-ms-min]').forEach(inp=>inp.oninput=()=>{
     manualSelectedStats[+inp.dataset.msMin].minValue=inp.value;
@@ -1752,11 +1714,16 @@ function buildManualPayload(){
   const statIds=manualSelectedStats.map(s=>s.id);
   const statFilters=manualSelectedStats.map(s=>{
     const obj={id:s.id};
-    if(s.minValue!==''&&s.minValue!==null&&!isNaN(Number(s.minValue)))obj.min=Number(s.minValue);
-    if(s.maxValue!==''&&s.maxValue!==null&&!isNaN(Number(s.maxValue)))obj.max=Number(s.maxValue);
+    if(s.option!==null&&s.option!==undefined){
+      obj.option=s.option;
+    }else{
+      if(s.minValue!==''&&s.minValue!==null&&!isNaN(Number(s.minValue)))obj.min=Number(s.minValue);
+      if(s.maxValue!==''&&s.maxValue!==null&&!isNaN(Number(s.maxValue)))obj.max=Number(s.maxValue);
+    }
     return obj;
   });
   const condParts=manualSelectedStats.map(s=>{
+    if(s.option!==null&&s.option!==undefined)return s.zh;
     const hasMin=s.minValue!==''&&s.minValue!==null&&!isNaN(Number(s.minValue));
     const hasMax=s.maxValue!==''&&s.maxValue!==null&&!isNaN(Number(s.maxValue));
     if(hasMin&&hasMax)return `${s.zh} (${s.minValue} ~ ${s.maxValue})`;
