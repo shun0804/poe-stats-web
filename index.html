@@ -1,0 +1,1433 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>POE 裝備統計助手 V2.25</title>
+<style>
+:root{
+  --nav-bg:#2b3643;
+  --nav-text:#e2e8f0;
+  --side-bg:#f0f2f5;
+  --side-border:#dcdfe6;
+  --side-hover:#e6e9ef;
+  --page-bg:#f5f7fa;
+  --card-bg:#ffffff;
+  --border:#e4e7ed;
+  --input-border:#dcdfe6;
+  --text-main:#303133;
+  --text-regular:#606266;
+  --text-muted:#909399;
+  --mint:#3bb38a;
+  --mint-hover:#319c77;
+  --blue:#2b7de9;
+  --sky:#409eff;
+  --green-badge:#67c23a;
+  --amber-badge:#e6a23c;
+  --danger:#f56c6c;
+  font-family:'Microsoft JhengHei UI','Microsoft JhengHei','PingFang TC',system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+body,input,textarea,select,button{
+  font-family:'Microsoft JhengHei UI','Microsoft JhengHei','PingFang TC',system-ui,-apple-system,sans-serif;
+}
+body{margin:0;background:var(--page-bg);color:var(--text-main);font-size:16px;line-height:1.6}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* Top Navbar */
+.topbar{
+  height:56px;
+  background:var(--nav-bg);
+  color:var(--nav-text);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 22px;
+  position:sticky;
+  top:0;
+  z-index:100;
+  box-shadow:0 1px 4px rgba(0,21,41,.18);
+}
+.topbar-left{display:flex;align-items:center;gap:14px}
+.hamburger{
+  background:transparent;border:0;color:#cbd5e1;font-size:20px;
+  width:36px;height:36px;border-radius:4px;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;
+}
+.hamburger:hover{background:rgba(255,255,255,.1);color:#fff}
+.brand{display:flex;align-items:center;gap:10px;font-size:19px;font-weight:700;letter-spacing:.4px;color:#fff}
+.brand-logo{
+  width:30px;height:30px;border-radius:6px;
+  background:linear-gradient(135deg,#3bb38a 0%,#2b7de9 100%);
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:16px;font-weight:800;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);
+}
+.ver-pill{
+  font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;
+  background:rgba(59,179,138,.22);color:#6ee7b7;border:1px solid rgba(110,231,183,.35);
+}
+.topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.top-action{
+  background:transparent;border:0;color:#e2e8f0;font-size:15px;
+  padding:7px 12px;border-radius:4px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.top-action:hover{background:rgba(255,255,255,.12);color:#fff}
+.top-action.danger-link:hover{background:rgba(245,108,108,.22);color:#fca5a5}
+.top-divider{width:1px;height:16px;background:rgba(255,255,255,.2);margin:0 2px}
+
+/* App Shell */
+.app-shell{display:flex;min-height:calc(100vh - 56px)}
+
+/* Left Sidebar */
+.sidebar{
+  width:244px;
+  flex:none;
+  background:var(--side-bg);
+  border-right:1px solid var(--side-border);
+  user-select:none;
+  transition:width .2s ease;
+  overflow:hidden;
+}
+.sidebar.collapsed{width:0;border-right:0}
+.side-group{border-bottom:1px solid #e6e8ed}
+.side-group-title{
+  padding:14px 18px;
+  font-size:15px;
+  font-weight:700;
+  color:var(--text-regular);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  cursor:pointer;
+  border-left:4px solid transparent;
+  transition:all .12s;
+}
+.side-group-title:hover{background:var(--side-hover);color:var(--text-main)}
+.side-group-title.active{
+  background:#ffffff;
+  color:var(--mint);
+  border-left-color:var(--mint);
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.side-group-title .ico{margin-right:9px;font-style:normal;opacity:.85}
+.side-sub{background:#e9ecf1;padding:3px 0}
+.side-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 18px 12px 40px;
+  font-size:15px;color:var(--text-regular);
+  cursor:pointer;border-left:4px solid transparent;
+  transition:all .12s;
+}
+.side-item:hover{background:#e2e6ed;color:var(--text-main)}
+.side-item.active{
+  background:#ffffff;
+  color:var(--mint);
+  font-weight:700;
+  border-left-color:var(--mint);
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.side-badge{
+  font-size:13px;padding:1px 8px;border-radius:12px;
+  background:#dcdfe6;color:#606266;font-weight:600;
+}
+.side-item.active .side-badge,
+.side-group-title.active .side-badge{background:#e6f7f1;color:var(--mint)}
+
+/* Main Workspace */
+.workspace{flex:1;min-width:0;padding:20px 28px 42px}
+
+/* Breadcrumb */
+.breadcrumb{
+  display:flex;align-items:center;gap:8px;
+  font-size:14px;color:var(--text-muted);
+  margin-bottom:14px;
+}
+.breadcrumb span.cur{color:var(--text-regular);font-weight:600}
+
+/* Page Header */
+.page-header{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:14px;flex-wrap:wrap;margin-bottom:18px;
+}
+.page-title{font-size:23px;font-weight:700;color:var(--text-main);margin:0}
+.page-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* Enterprise Buttons */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  height:38px;padding:0 18px;border-radius:5px;font-size:15px;font-weight:600;
+  cursor:pointer;border:1px solid transparent;
+  transition:all .15s;white-space:nowrap;
+}
+.btn:disabled{opacity:.48;cursor:not-allowed}
+.btn-mint{background:var(--mint);color:#fff;border-color:var(--mint)}
+.btn-mint:hover:not(:disabled){background:var(--mint-hover);border-color:var(--mint-hover)}
+.btn-sky-outline{background:#fff;color:var(--sky);border-color:#b3d8ff}
+.btn-sky-outline:hover:not(:disabled){background:#ecf5ff;border-color:var(--sky)}
+.btn-sky-solid{background:var(--sky);color:#fff;border-color:var(--sky)}
+.btn-sky-solid:hover:not(:disabled){background:#2b7de9;border-color:#2b7de9}
+.btn-amber-outline{background:#fff;color:#d97706;border-color:#fcd34d}
+.btn-amber-outline:hover:not(:disabled){background:#fffbeb;border-color:#f59e0b}
+.btn-green-outline{background:#fff;color:#389e0d;border-color:#b7eb8f}
+.btn-green-outline:hover:not(:disabled){background:#f6ffed;border-color:#52c41a}
+.btn-danger-outline{background:#fff;color:var(--danger);border-color:#fbc4c4}
+.btn-danger-outline:hover:not(:disabled){background:#fef0f0;border-color:var(--danger)}
+.btn-default{background:#fff;color:var(--text-regular);border-color:var(--input-border)}
+.btn-default:hover:not(:disabled){color:var(--blue);border-color:#c6e2ff;background:#ecf5ff}
+.btn-sm{height:34px;padding:0 13px;font-size:14px}
+.btn-xs{height:30px;padding:0 10px;font-size:13px}
+
+/* Cards */
+.card{
+  background:var(--card-bg);
+  border:1px solid var(--border);
+  border-radius:6px;
+  padding:22px 26px;
+  margin-bottom:18px;
+}
+.card-header{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  padding-bottom:14px;margin-bottom:16px;border-bottom:1px solid #ebeef5;
+}
+.card-title{font-size:17px;font-weight:700;color:var(--text-main);margin:0;display:flex;align-items:center;gap:8px}
+
+.form-label-top{display:block;font-size:15px;font-weight:600;color:var(--text-regular);margin-bottom:8px}
+.hint-text{font-size:13px;color:var(--text-muted);margin-top:6px}
+
+/* Form Controls */
+input[type="text"],input[type="number"],textarea,select{
+  width:100%;background:#fff;color:var(--text-main);
+  border:1px solid var(--input-border);border-radius:5px;
+  padding:8px 13px;font-size:15px;
+  transition:border-color .15s;
+}
+input[type="text"],select{height:40px}
+textarea{min-height:190px;resize:vertical;line-height:1.6}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--sky)}
+input::placeholder,textarea::placeholder{color:#b4b8c2}
+
+.import-footer{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;margin-top:18px;padding-top:16px;
+  border-top:1px solid #ebeef5;
+}
+
+/* Structured Filter Bar */
+.filter-form{display:flex;flex-direction:column;gap:14px;padding-bottom:20px;border-bottom:1px solid #ebeef5}
+.filter-row{display:flex;align-items:center;gap:14px}
+.filter-key{
+  width:110px;flex:none;text-align:right;
+  font-size:15px;font-weight:600;color:var(--text-regular);
+}
+.filter-key-box{width:175px;flex:none}
+.filter-val{flex:1;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.filter-actions{padding-left:124px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+
+/* Notice Banner */
+.notice{
+  padding:12px 16px;border-radius:5px;margin-bottom:16px;font-size:15px;
+  background:#f0f9eb;border:1px solid #e1f3d8;color:#389e0d;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.notice.error{background:#fef0f0;border-color:#fde2e2;color:#f56c6c}
+
+/* Table Toolbar */
+.table-toolbar{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:14px;flex-wrap:wrap;padding:18px 0 14px;
+}
+.toolbar-left{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.summary-text{font-size:15px;color:#389e0d;font-weight:600}
+.toolbar-right{display:flex;align-items:center;gap:8px}
+
+/* Enterprise Data Table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:16px;color:var(--text-regular)}
+th{
+  background:#fafafa;color:var(--text-main);font-weight:700;
+  text-align:left;padding:14px 16px;font-size:15px;
+  border-top:1px solid #ebeef5;border-bottom:1px solid #ebeef5;
+  white-space:nowrap;
+}
+td{
+  padding:14px 16px;border-bottom:1px solid #ebeef5;
+  vertical-align:middle;
+}
+tbody tr.item-row:hover{background:#f5f7fa}
+tbody tr.item-row.expanded{background:#f0f7ff}
+tbody tr.item-row.expanded td{border-bottom:0}
+.item-zh-link{color:var(--blue);font-weight:700;font-size:17px}
+.item-unverified{color:var(--text-main);font-weight:600;font-size:16px}
+.pending-tag{
+  display:inline-block;margin-left:8px;padding:1px 8px;border-radius:4px;
+  font-size:12px;font-weight:600;background:#fdf6ec;color:#b45309;border:1px solid #faecd8;
+  vertical-align:middle;
+}
+.status-pill{
+  display:inline-block;padding:2px 10px;border-radius:4px;
+  font-size:13px;font-weight:600;color:#fff;line-height:1.5;
+}
+.status-pill.ok{background:var(--green-badge)}
+.status-pill.paused{background:#909399}
+.status-pill.err{background:var(--danger)}
+.op-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+/* Inline Accordion Mod Drawer */
+tr.mod-drawer-row td{
+  padding:0 16px 18px 16px;
+  background:#f0f7ff;
+  border-bottom:1px solid #d9ecff;
+}
+.mod-drawer{
+  background:#ffffff;
+  border:1px solid #c6e2ff;
+  border-left:4px solid var(--sky);
+  border-radius:6px;
+  padding:16px 20px;
+  box-shadow:0 2px 8px rgba(64,158,255,.08);
+  animation:drawerSlide .16s ease-out;
+}
+@keyframes drawerSlide{
+  from{opacity:0;transform:translateY(-4px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.mod-drawer-head{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;
+  padding-bottom:12px;margin-bottom:8px;
+  border-bottom:1px solid #ebeef5;
+}
+.mod-drawer-info{font-size:14px;color:var(--text-regular);font-weight:500}
+.mod-drawer-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.modrow{
+  display:flex;align-items:center;gap:14px;
+  padding:11px 10px;border-bottom:1px solid #f0f2f5;
+}
+.modrow:last-child{border-bottom:0}
+.modrow:hover{background:#f8fafc}
+.modrow .modcheck{width:20px;height:20px;accent-color:var(--mint);cursor:pointer;margin:0;flex:none}
+.modrow .modlabel{flex:1;font-size:16px;color:var(--text-main);cursor:pointer}
+.modrow .modlabel.pending{color:#b45309}
+.modrow .modlabel small{display:block;color:var(--text-muted);font-size:13px;margin-top:2px}
+.mod-min-box{
+  display:flex;align-items:center;gap:6px;flex:none;
+}
+.mod-min-box input{
+  width:105px;height:34px;padding:4px 10px;font-size:14px;text-align:center;
+}
+.modrow .modchoice{width:min(360px,45%);flex:none}
+.modbottom{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:14px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid #ebeef5;
+}
+.modbottom-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* Monitor Settings Grid */
+.notify-grid{display:grid;grid-template-columns:1fr 1.3fr;gap:20px}
+.notify-box{
+  background:#f8fafc;border:1px solid #e4e7ed;border-radius:6px;padding:18px 20px;
+}
+.notify-box h3{margin:0 0 8px;font-size:16px;color:var(--text-main);display:flex;align-items:center;gap:8px}
+.sync-bar{
+  margin-top:16px;padding:14px 18px;border-radius:6px;
+  background:#f0f7ff;border:1px solid #d9ecff;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+}
+.cond-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.cond-tag{
+  display:inline-block;background:#ecf5ff;border:1px solid #d9ecff;
+  color:#2b7de9;font-size:13px;padding:2px 9px;border-radius:4px;font-weight:500;
+}
+
+@media(max-width:950px){
+  .notify-grid{grid-template-columns:1fr}
+  .sidebar{position:fixed;top:56px;bottom:0;left:0;z-index:90;box-shadow:2px 0 8px rgba(0,0,0,.12)}
+  .sidebar.collapsed{width:0}
+  .filter-row{flex-direction:column;align-items:stretch}
+  .filter-key{width:auto;text-align:left}
+  .filter-key-box{width:100%}
+  .filter-actions{padding-left:0}
+}
+@media(max-width:720px){
+  .modrow{flex-wrap:wrap}
+  .mod-min-box{margin-left:34px}
+  .modrow .modchoice{width:100%;margin-left:34px}
+}
+</style>
+</head>
+<body>
+
+<!-- Dark Enterprise Top Header -->
+<header class="topbar">
+  <div class="topbar-left">
+    <button class="hamburger" id="toggleSidebar" title="收合／展開側邊欄">☰</button>
+    <div class="brand">
+      <span class="brand-logo">P</span>
+      <span>POE 裝備統計</span>
+      <span class="ver-pill">V2.25</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="top-action" id="export">⬇ 匯出 JSON</button>
+    <span class="top-divider"></span>
+    <button class="top-action" id="importBtn">⬆ 匯入 JSON</button>
+    <input hidden id="importFile" type="file" accept="application/json,.json">
+    <span class="top-divider"></span>
+    <button class="top-action danger-link" id="clear">🗑 清空樣本</button>
+  </div>
+</header>
+
+<div class="app-shell">
+  <!-- Left Sidebar Navigation -->
+  <aside class="sidebar" id="sidebar">
+    <div class="side-group">
+      <div class="side-group-title" id="navImport" data-view="import">
+        <span><i class="ico">📥</i>資料匯入</span>
+        <span class="side-badge" id="badge-chars">0</span>
+      </div>
+    </div>
+
+    <div class="side-group">
+      <div class="side-group-title" style="cursor:default">
+        <span><i class="ico">📦</i>裝備統計清單</span>
+        <span>⌄</span>
+      </div>
+      <div class="side-sub">
+        <div class="side-item active" data-view="gear">
+          <span>傳奇裝備</span>
+          <span class="side-badge" id="badge-gear">0</span>
+        </div>
+        <div class="side-item" data-view="jewels">
+          <span>傳奇珠寶</span>
+          <span class="side-badge" id="badge-jewels">0</span>
+        </div>
+        <div class="side-item" data-view="gems">
+          <span>技能寶石</span>
+          <span class="side-badge" id="badge-gems">0</span>
+        </div>
+        <div class="side-item" data-view="rare">
+          <span>稀有裝備</span>
+          <span class="side-badge" id="badge-rare">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-group">
+      <div class="side-group-title" id="navMonitor" data-view="monitor">
+        <span><i class="ico">🔔</i>市場自動監控</span>
+        <span class="side-badge" id="badge-monitors">0</span>
+      </div>
+    </div>
+
+    <div class="side-group">
+      <div class="side-group-title" id="navTranslate">
+        <span><i class="ico">🌐</i>核對中文名稱</span>
+        <span>›</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Workspace -->
+  <main class="workspace">
+    <!-- Breadcrumb -->
+    <div class="breadcrumb" id="breadcrumb">
+      <span>🏠</span>
+      <span>/</span>
+      <span>裝備統計清單</span>
+      <span>/</span>
+      <span class="cur">傳奇裝備</span>
+    </div>
+
+    <!-- Page Header -->
+    <div class="page-header">
+      <h1 class="page-title" id="pageTitle">傳奇裝備清單</h1>
+      <div class="page-actions" id="pageActions">
+        <button class="btn btn-mint" id="quickAddFocus">+ 新增 PoB 匯入</button>
+      </div>
+    </div>
+
+    <div id="message" aria-live="polite"></div>
+
+    <!-- Dedicated View 1: PoB Import Page -->
+    <section class="card" id="importCard" hidden>
+      <div class="card-header">
+        <h2 class="card-title">📥 PoB 匯出碼匯入</h2>
+        <span class="hint-text" style="margin:0">僅讀取目前啟用的裝備組與天賦珠寶（資料儲存在你自己的瀏覽器中）</span>
+      </div>
+      <div>
+        <label class="form-label-top" for="code">貼上 PoB 匯出碼或完整 XML</label>
+        <textarea id="code" placeholder="貼上 eNrt... 開頭的 PoB 匯出碼，或直接貼上完整 PathOfBuilding XML"></textarea>
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+          <button class="btn btn-mint" id="addCode">解析並加入樣本</button>
+          <label class="btn btn-sky-outline" style="cursor:pointer">選擇 .xml / .txt 檔<input hidden id="xmlFile" type="file" accept=".xml,.txt,text/plain,application/xml"></label>
+        </div>
+      </div>
+      <div class="import-footer">
+        <span class="summary-text" id="importCharSummary">目前已匯入 0 位角色樣本</span>
+        <button class="btn btn-sky-outline" id="goListFromImport">查看裝備統計清單 →</button>
+      </div>
+    </section>
+
+    <!-- Dedicated View 2: Equipment List Page -->
+    <section class="card" id="listCard">
+      <!-- Structured Search & Filter Form -->
+      <div class="filter-form">
+        <div class="filter-row">
+          <div class="filter-key">搜尋</div>
+          <div class="filter-val">
+            <input type="text" id="find" placeholder="輸入中文或英文名稱搜尋...">
+          </div>
+        </div>
+
+        <div class="filter-row">
+          <div class="filter-key-box">
+            <select id="filterMode" aria-label="篩選條件">
+              <option value="all">全部翻譯狀態</option>
+              <option value="verified">僅已核對中文</option>
+              <option value="pending">僅待核對中文</option>
+            </select>
+          </div>
+          <div class="filter-val">
+            <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:240px">
+              <span style="font-size:15px;color:var(--text-regular);white-space:nowrap;font-weight:600">台服聯盟：</span>
+              <input type="text" id="league" value="巫影密會" placeholder="例如：巫影密會" style="max-width:240px">
+            </div>
+          </div>
+        </div>
+
+        <div class="filter-actions">
+          <button class="btn btn-sky-outline" id="resetFilter">重設篩選條件</button>
+          <button class="btn btn-mint" id="applyFilter">即時篩選</button>
+        </div>
+      </div>
+
+      <!-- Table Toolbar -->
+      <div class="table-toolbar">
+        <div class="toolbar-left">
+          <span class="summary-text">(已匯入 <strong id="charCount">0</strong> 位角色 · 目前顯示 <strong id="linkCount">0</strong> 筆資料)</span>
+          <button class="btn btn-green-outline btn-sm" id="translate">核對中文名稱</button>
+          <button class="btn btn-default btn-sm" id="copyAll">複製目前清單</button>
+        </div>
+        <div class="toolbar-right">
+          <span style="font-size:14px;color:var(--text-muted);font-weight:600" id="linkTab">傳奇裝備</span>
+        </div>
+      </div>
+
+      <!-- Data Table -->
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>台服中文名稱</th>
+              <th style="width:430px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="links"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Dedicated View 3: Market Monitor Page -->
+    <div id="monitorView" hidden>
+      <!-- Notification Settings Card -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">🔔 通知方式設定（每位玩家獨立隔離，互不干擾）</h2>
+          <span class="hint-text" style="margin:0">每 10 分鐘自動巡檢台服市集（每人上限 8 項監控）</span>
+        </div>
+        <div class="notify-grid">
+          <!-- Browser Notification + Sound -->
+          <div class="notify-box">
+            <h3>🖥 網頁桌面通知 &amp; 提示音效</h3>
+            <p class="hint-text" style="margin:4px 0 12px;font-size:14px">
+              通知權限狀態：<strong id="notifPermStatus" style="color:var(--text-main)">檢查中…</strong>
+            </p>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <button class="btn btn-sky-solid btn-sm" id="enableBrowserNotif">開啟桌面通知並測試音效</button>
+              <label style="display:inline-flex;align-items:center;gap:6px;font-size:14px;cursor:pointer;font-weight:600;color:var(--text-regular)">
+                <input type="checkbox" id="soundEnabled" checked style="width:18px;height:18px;accent-color:var(--mint)">
+                啟用提示音效
+              </label>
+            </div>
+          </div>
+
+          <!-- Discord Webhook -->
+          <div class="notify-box">
+            <h3>💬 Discord Webhook 推播（僅綁定你的專屬監控）</h3>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+              <input type="text" id="discordWebhookInput" placeholder="貼上 https://discord.com/api/webhooks/..." style="flex:1;min-width:220px">
+              <button class="btn btn-mint btn-sm" id="saveDiscordBtn">儲存</button>
+              <button class="btn btn-default btn-sm" id="testDiscordBtn">測試發送</button>
+            </div>
+            <p class="hint-text" style="margin:6px 0 0">你的 Webhook 僅存於你自己的專屬代碼下，其他玩家無法看到。</p>
+          </div>
+        </div>
+
+        <!-- Personal Sync Code Bar -->
+        <div class="sync-bar">
+          <div style="font-size:14px;color:var(--text-regular)">
+            <strong>🔑 你的專屬監控代碼：</strong>
+            <code id="clientIdDisplay" style="background:#fff;padding:3px 9px;border-radius:4px;border:1px solid #b3d8ff;color:#1d4ed8;font-weight:700"></code>
+            <span style="color:var(--text-muted);margin-left:6px">（換手機或電腦時，輸入相同代碼即可同步你的監控清單）</span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-default btn-xs" id="copyClientIdBtn">複製代碼</button>
+            <button class="btn btn-sky-outline btn-xs" id="switchClientIdBtn">輸入其他代碼同步</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Active Monitors List Card -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">⏱ 監控中的裝備清單（每 10 分鐘自動檢查）</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sky-outline btn-sm" id="checkAllMonitorsBtn">立即全部檢查一次</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>監控裝備與數值條件</th>
+                <th style="width:120px">聯盟</th>
+                <th style="width:110px">目前在售</th>
+                <th style="width:190px">檢查時間</th>
+                <th style="width:100px">狀態</th>
+                <th style="width:270px">操作</th>
+              </tr>
+            </thead>
+            <tbody id="monitorTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Recent Alerts Card -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">🆕 新上架商品通知紀錄</h2>
+          <button class="btn btn-default btn-sm" id="clearAlertsBtn">清空通知紀錄</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:100px">時間</th>
+                <th>裝備名稱</th>
+                <th style="width:140px">標價</th>
+                <th style="width:160px">賣家角色</th>
+                <th style="width:130px">操作</th>
+              </tr>
+            </thead>
+            <tbody id="alertsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function getClientId(){
+  let cid=localStorage.getItem('poeClientId')||'';
+  if(!/^[A-Za-z0-9_-]{6,64}$/.test(cid)){
+    cid='poe_'+Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,6);
+    localStorage.setItem('poeClientId',cid);
+  }
+  return cid;
+}
+let clientId=getClientId();
+
+let chars=[];try{chars=JSON.parse(localStorage.getItem('poeStatsV2')||'[]')}catch{}
+let activeView=chars.length?'gear':'import';
+let lastListTab='gear';
+let rows=[];
+let jewelDetails={};
+let expandedDetailKey=null;
+let modLoading={};
+let modErrors={};
+let translations={};try{translations=JSON.parse(localStorage.getItem('poeStatsV22Translations')||'{}')}catch{}
+let soundEnabled=localStorage.getItem('poeSoundEnabled')!=='false';
+let monitorData={monitors:[],alerts:[],discordWebhook:''};
+
+const TAB_NAMES={gear:'傳奇裝備',jewels:'傳奇珠寶',gems:'技能寶石',rare:'稀有裝備',monitor:'市場自動監控'};
+const nameKey=x=>x.kind+'|'+x.name;
+function translated(x){return translations[nameKey(x)]||null}
+function labelName(x){return translated(x)?.zh||x.name}
+function detailKey(x){return x.kind+'|'+x.name+'|'+(x.slot||'')+'|'+(x.base||'')}
+function localizedBase(x){return translations['base|'+x.base]?.zh||x.base||''}
+function persistNames(){localStorage.setItem('poeStatsV22Translations',JSON.stringify(translations))}
+
+function save(){localStorage.setItem('poeStatsV2',JSON.stringify(chars));render();seedNames()}
+function msg(s,err=false){
+  $('message').innerHTML=`<div class="notice ${err?'error':''}"><span>${esc(s)}</span><button style="background:transparent;border:0;color:inherit;cursor:pointer;font-weight:700;font-size:16px" onclick="this.parentElement.remove()">✕</button></div>`;
+}
+async function api(path,payload){
+  const res=await fetch(path,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Client-Id':clientId},
+    body:JSON.stringify(payload)
+  });
+  const d=await res.json();
+  if(!d.ok)throw Error(d.error||'處理失敗');
+  return d;
+}
+
+/* Pleasant Two-Tone Web Audio Chime */
+function playAlertSound(){
+  if(!soundEnabled)return;
+  try{
+    const AudioCtx=window.AudioContext||window.webkitAudioContext;
+    if(!AudioCtx)return;
+    const ctx=new AudioCtx();
+    const now=ctx.currentTime;
+    const notes=[880,1174.66];
+    notes.forEach((freq,idx)=>{
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      osc.type='sine';
+      osc.frequency.setValueAtTime(freq,now+idx*0.16);
+      gain.gain.setValueAtTime(0.001,now+idx*0.16);
+      gain.gain.exponentialRampToValueAtTime(0.22,now+idx*0.16+0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001,now+idx*0.16+0.55);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now+idx*0.16);
+      osc.stop(now+idx*0.16+0.6);
+    });
+  }catch(e){}
+}
+
+function updateNotifStatusUI(){
+  const el=$('notifPermStatus');
+  if(!el)return;
+  if(!('Notification' in window)){
+    el.textContent='此瀏覽器不支援桌面通知';
+    el.style.color='var(--danger)';
+  }else if(Notification.permission==='granted'){
+    el.textContent='已開啟授權 ✅';
+    el.style.color='#389e0d';
+  }else if(Notification.permission==='denied'){
+    el.textContent='已被瀏覽器封鎖 ❌（請從網址列左側鎖頭圖示允許通知）';
+    el.style.color='var(--danger)';
+  }else{
+    el.textContent='尚未開啟（點擊右側按鈕啟用）';
+    el.style.color='#d97706';
+  }
+  $('soundEnabled').checked=soundEnabled;
+  if($('clientIdDisplay'))$('clientIdDisplay').textContent=clientId;
+}
+
+function showBrowserNotification(title, body, url){
+  if(!('Notification' in window)||Notification.permission!=='granted')return;
+  try{
+    const n=new Notification(title,{body});
+    n.onclick=()=>{
+      window.focus();
+      if(url)window.open(url,'_blank','noopener');
+      n.close();
+    };
+  }catch(e){}
+}
+
+/* View & Sidebar Navigation */
+$('toggleSidebar').onclick=()=>$('sidebar').classList.toggle('collapsed');
+
+function switchView(view){
+  activeView=view;
+  if(view!=='import'&&view!=='monitor')lastListTab=view;
+  expandedDetailKey=null;
+
+  document.querySelectorAll('[data-view]').forEach(el=>{
+    el.classList.toggle('active',el.dataset.view===view);
+  });
+
+  $('importCard').hidden=(view!=='import');
+  $('listCard').hidden=(view==='import'||view==='monitor');
+  $('monitorView').hidden=(view!=='monitor');
+
+  if(view==='import'){
+    $('breadcrumb').innerHTML='<span>🏠</span><span>/</span><span class="cur">資料匯入</span>';
+    $('pageTitle').textContent='PoB 匯出碼匯入';
+    $('pageActions').innerHTML='<button class="btn btn-sky-outline" id="headerGoList">查看裝備統計清單 →</button>';
+    $('headerGoList').onclick=()=>switchView(lastListTab);
+  }else if(view==='monitor'){
+    $('breadcrumb').innerHTML='<span>🏠</span><span>/</span><span class="cur">市場自動監控</span>';
+    $('pageTitle').textContent='市場自動監控（每 10 分鐘巡檢）';
+    $('pageActions').innerHTML='<button class="btn btn-sky-outline" id="headerBackList">← 返回裝備清單</button>';
+    $('headerBackList').onclick=()=>switchView(lastListTab);
+    updateNotifStatusUI();
+    refreshMonitorView();
+  }else{
+    $('breadcrumb').innerHTML=`<span>🏠</span><span>/</span><span>裝備統計清單</span><span>/</span><span class="cur">${TAB_NAMES[view]}</span>`;
+    $('pageTitle').textContent=TAB_NAMES[view]+'清單';
+    $('pageActions').innerHTML='<button class="btn btn-mint" id="quickAddFocus">+ 新增 PoB 匯入</button>';
+    $('quickAddFocus').onclick=()=>{switchView('import');$('code').focus()};
+    renderLinks();
+  }
+}
+
+document.querySelectorAll('[data-view]').forEach(el=>{
+  el.onclick=()=>switchView(el.dataset.view);
+});
+$('goListFromImport').onclick=()=>switchView(lastListTab);
+$('navTranslate').onclick=async()=>{
+  if(activeView==='import'||activeView==='monitor')switchView(lastListTab);
+  await verifyNames();
+};
+
+function add(c){
+  let key=c.source||c.id;
+  if(chars.some(x=>(x.source||x.id)===key)){
+    if(!confirm('此來源已匯入，是否覆蓋舊樣本？'))return;
+    chars=chars.filter(x=>(x.source||x.id)!==key);
+  }
+  chars.push(c);
+  save();
+  msg(`匯入成功：${c.ascendancy||c.class} Lv.${c.level}（已裝備 ${c.items.length} 件、寶石 ${c.skills.length} 顆）`);
+}
+
+$('addCode').onclick=async()=>{
+  let b=$('addCode');b.disabled=true;
+  try{add((await api('/api/parse',{code:$('code').value})).character);$('code').value=''}
+  catch(e){msg(e.message,true)}
+  finally{b.disabled=false}
+};
+
+$('xmlFile').onchange=async e=>{
+  let f=e.target.files[0];if(!f)return;
+  try{add((await api('/api/parse',{code:await f.text(),source:f.name+'-'+f.size})).character)}
+  catch(x){msg(x.message,true)}
+  e.target.value='';
+};
+
+$('clear').onclick=()=>{
+  if(confirm('確定清空所有角色樣本？')){
+    chars=[];jewelDetails={};expandedDetailKey=null;save();switchView('import');msg('已清空所有樣本');
+  }
+};
+
+$('export').onclick=()=>{
+  let a=document.createElement('a'),u=URL.createObjectURL(new Blob([JSON.stringify({version:2,characters:chars},null,2)],{type:'application/json'}));
+  a.href=u;a.download='poe-stats-v22-data.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(u),2000);
+};
+
+$('importBtn').onclick=()=>$('importFile').click();
+$('importFile').onchange=async e=>{
+  try{
+    let f=e.target.files[0];if(!f)return;
+    let o=JSON.parse(await f.text());
+    if(!Array.isArray(o.characters))throw Error('無效的備份格式');
+    if(!confirm(`匯入 ${o.characters.length} 筆角色？`))return;
+    for(let c of o.characters)if(c&&Array.isArray(c.items)&&!chars.some(x=>x.id===c.id))chars.push(c);
+    save();msg('備份匯入完成');
+  }catch(x){msg(x.message,true)}
+  e.target.value='';
+};
+
+$('find').oninput=renderLinks;
+$('filterMode').onchange=renderLinks;
+$('applyFilter').onclick=renderLinks;
+$('resetFilter').onclick=()=>{$('find').value='';$('filterMode').value='all';renderLinks()};
+
+function isJewel(x){return x.slot==='珠寶'||/Jewel/i.test(x.base||'')}
+
+function groupedForTab(targetTab){
+  let m=new Map();
+  for(let c of chars){
+    let found=new Set();
+    let input=targetTab==='gems'?(c.skills||[]).map(x=>({...x,kind:'gem'})):
+      (c.items||[]).filter(x=>targetTab==='rare'?x.rarity==='RARE':x.rarity==='UNIQUE'&&(targetTab==='jewels'?isJewel(x):!isJewel(x))).map(x=>({...x,kind:targetTab==='rare'?'rare':'unique'}));
+    for(let x of input){
+      let name=(x.name||'').trim(),base=(x.base||'').trim(),slot=x.slot||'';
+      if(targetTab==='rare')name=base||slot||'未知基底';
+      if(!name)continue;
+      let key=targetTab==='rare'?'rare|'+slot+'|'+base.toLowerCase():name.toLowerCase();
+      if(found.has(key))continue;found.add(key);
+      let v=m.get(key)||{name,base,slot,kind:x.kind,count:0,variants:[]};
+      v.count++;
+      if(x.kind==='rare'||(x.kind==='unique'&&targetTab==='jewels'))v.variants.push({mods:x.mods||[],source:c.source||c.id,originalName:x.name});
+      m.set(key,v);
+    }
+  }
+  return [...m.values()].sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
+}
+
+function render(){
+  $('charCount').textContent=chars.length;
+  $('badge-chars').textContent=chars.length;
+  $('importCharSummary').textContent=`目前已匯入 ${chars.length} 位角色樣本`;
+  for(const t of ['gear','jewels','gems','rare']){
+    const el=$('badge-'+t);
+    if(el)el.textContent=groupedForTab(t).length;
+  }
+  if(activeView!=='import'&&activeView!=='monitor')renderLinks();
+}
+
+function buildSearchPayload(x){
+  const tab=activeView==='import'||activeView==='monitor'?lastListTab:activeView;
+  const tr=translated(x), league=$('league').value.trim();
+  if(tab!=='rare'&&(!tr||tr.status!=='verified'||!tr.zh)){
+    throw Error('中文名稱尚未核對，請先核對或手動修正中文名稱');
+  }
+  if(!league)throw Error('請填入台服聯盟名稱');
+  const detail=jewelDetails[detailKey(x)];
+  const selected=((tab==='jewels'||tab==='rare')&&detail)?detail.filter(z=>z.checked&&z.id):[];
+  const statIds=selected.map(z=>z.id);
+  const statFilters=selected.map(z=>{
+    const hasMin=z.minValue!==''&&z.minValue!==null&&z.minValue!==undefined&&!isNaN(Number(z.minValue));
+    return {id:z.id,...(hasMin?{min:Number(z.minValue)}:{})};
+  });
+  const condParts=selected.map(z=>{
+    const hasMin=z.minValue!==''&&z.minValue!==null&&z.minValue!==undefined&&!isNaN(Number(z.minValue));
+    return hasMin?`${z.zh} (≥ ${z.minValue})`:z.zh;
+  });
+  const displayName=tab==='rare'?(localizedBase(x)||x.name):(tr?.zh||x.name);
+  return {
+    name:tab==='rare'?x.name:tr.zh,
+    displayName,
+    league,
+    kind:x.kind,
+    base:tab==='rare'?(localizedBase(x)!==x.base?localizedBase(x):''):(x.base||''),
+    statIds,
+    statFilters,
+    condSummary:condParts.join(' ｜ '),
+  };
+}
+
+function buildInlineDrawer(x, i, dKey){
+  const loading=!!modLoading[dKey];
+  const err=modErrors[dKey];
+  const arr=jewelDetails[dKey]||[];
+  const matchedCount=arr.filter(m=>m.id).length;
+  const checkedCount=arr.filter(m=>m.checked&&m.id).length;
+
+  let headInfo='正在比對官方交易詞綴資料…';
+  if(!loading&&!err){
+    headInfo=`已對應 ${matchedCount} / ${arr.length} 條詞綴（可填寫最小數值限制，搜尋與監控皆會套用）`;
+  }else if(err){
+    headInfo='讀取詞綴失敗';
+  }
+
+  let bodyHtml='';
+  if(loading){
+    bodyHtml='<p class="hint-text" style="font-size:15px;padding:12px 4px;margin:0">⏳ 正在比對官方交易詞綴資料，請稍候…</p>';
+  }else if(err){
+    bodyHtml=`<p style="color:var(--danger);font-size:15px;padding:10px 4px;margin:0">${esc(err)}</p>`;
+  }else if(!arr.length){
+    bodyHtml='<p class="hint-text" style="font-size:15px;padding:10px 4px;margin:0">沒有可用詞綴</p>';
+  }else{
+    bodyHtml=arr.map((m,mi)=>{
+      const name=m.zh?esc(m.zh):esc(m.mod);
+      const candidates=(m.suggestions||[]).filter(z=>z.zh);
+      const rollHint=(m.rolls&&m.rolls.length)?m.rolls[0]:null;
+      const minBox=m.id?`<div class="mod-min-box">
+        <span style="font-size:13px;color:var(--text-muted)">最小≥</span>
+        <input type="number" step="any" data-min-key="${esc(dKey)}" data-min-mi="${mi}" value="${esc(m.minValue??'')}" placeholder="${rollHint!==null?'PoB:'+rollHint:'不限'}">
+        ${rollHint!==null?`<button type="button" class="btn btn-default btn-xs" data-fill-roll="${esc(dKey)}" data-fill-mi="${mi}" data-roll="${rollHint}" title="帶入 PoB 數值">帶入 ${rollHint}</button>`:''}
+      </div>`:'';
+      const advanced=(!m.id)?`<details class="modchoice"><summary style="cursor:pointer;color:var(--sky);font-size:14px">進階設定</summary>${candidates.length?`<select data-choice-key="${esc(dKey)}" data-choice-mi="${mi}" style="margin-top:6px"><option value="" ${m.id?'':'selected'}>請選擇中文詞綴</option>${candidates.map(c=>`<option value="${esc(c.id)}" ${m.id===c.id?'selected':''}>${esc(c.zh)}（${c.score}%）</option>`).join('')}</select>`:''}<small style="display:block;color:var(--text-muted);margin-top:4px">${esc(m.mod)}</small></details>`:'';
+      return `<div class="modrow">
+        <input class="modcheck" type="checkbox" id="modcheck-${i}-${mi}" data-mod-key="${esc(dKey)}" data-mi="${mi}" ${m.checked?'checked':''} ${m.id?'':'disabled'}>
+        <label class="modlabel ${m.id?'':'pending'}" for="modcheck-${i}-${mi}">${name}${m.id?'':'<small>尚未找到可用的交易詞綴，請在進階設定中確認</small>'}</label>
+        ${minBox}
+        ${advanced}
+      </div>`;
+    }).join('');
+  }
+
+  return `<tr class="mod-drawer-row">
+    <td colspan="2">
+      <div class="mod-drawer">
+        <div class="mod-drawer-head">
+          <span class="mod-drawer-info">${esc(headInfo)}</span>
+          <div class="mod-drawer-tools">
+            ${(!loading&&!err&&matchedCount>0)?`<button class="btn btn-default btn-xs" data-select-all="${esc(dKey)}">全選</button><button class="btn btn-default btn-xs" data-clear-all="${esc(dKey)}">全不選</button>`:''}
+            <button class="btn btn-default btn-xs" data-close-drawer="1">收合 ▲</button>
+          </div>
+        </div>
+        <div>${bodyHtml}</div>
+        <div class="modbottom">
+          <span style="font-size:15px;color:var(--text-regular);font-weight:600" id="drawer-count-${i}">已選取 ${checkedCount} 條詞綴</span>
+          <div class="modbottom-actions">
+            <button class="btn btn-amber-outline btn-sm" data-drawer-monitor="${i}" ${loading?'disabled':''}>🔔 加入 10 分鐘監控</button>
+            <button class="btn btn-mint btn-sm" data-drawer-trade="${i}" ${loading?'disabled':''}>台服一鍵搜尋已勾選詞綴</button>
+          </div>
+        </div>
+      </div>
+    </td>
+  </tr>`;
+}
+
+async function runTradeSearch(rowIndex, triggerBtn){
+  const x=rows[rowIndex];
+  if(!x)return;
+  let payload;
+  try{payload=buildSearchPayload(x)}catch(e){msg(e.message,true);return}
+  const market=window.open('about:blank','_blank');
+  if(market){
+    market.document.title='正在建立台服交易搜尋…';
+    market.document.body.textContent='正在建立「'+payload.displayName+'」的交易搜尋，請稍候…';
+  }
+  if(triggerBtn)triggerBtn.disabled=true;
+  try{
+    const result=await api('/api/trade-link',payload);
+    if(market)market.location.replace(result.url);
+    else window.open(result.url,'_blank','noopener');
+    msg('已建立「'+payload.displayName+'」的台服交易搜尋');
+  }catch(e){
+    if(market)market.close();
+    msg('無法建立交易搜尋：'+e.message,true);
+  }finally{
+    if(triggerBtn)triggerBtn.disabled=false;
+  }
+}
+
+async function addItemMonitor(rowIndex, triggerBtn){
+  const x=rows[rowIndex];
+  if(!x)return;
+  let payload;
+  try{payload=buildSearchPayload(x)}catch(e){msg(e.message,true);return}
+  if('Notification' in window&&Notification.permission==='default'){
+    Notification.requestPermission().catch(()=>{});
+  }
+  if(triggerBtn)triggerBtn.disabled=true;
+  try{
+    const res=await api('/api/monitors/add',{...payload,statusOption:'online'});
+    await pollMonitors(true);
+    const total=res.initial?.total??0;
+    msg(`已加入 10 分鐘自動監控：「${payload.displayName}」（目前線上在售 ${total} 筆，之後有新上架將立即通知）`);
+  }catch(e){
+    msg(e.message,true);
+  }finally{
+    if(triggerBtn)triggerBtn.disabled=false;
+  }
+}
+
+async function toggleInlineMods(x){
+  const dKey=detailKey(x);
+  if(expandedDetailKey===dKey){
+    expandedDetailKey=null;
+    renderLinks();
+    return;
+  }
+  const variants=x.variants||[];
+  if(!variants.length){msg('沒有這件裝備的 PoB 詞綴資料',true);return}
+
+  expandedDetailKey=dKey;
+  if(jewelDetails[dKey]){
+    renderLinks();
+    return;
+  }
+
+  const all=[...new Set(variants.flatMap(v=>v.mods))];
+  modLoading[dKey]=true;
+  delete modErrors[dKey];
+  renderLinks();
+
+  try{
+    const result=await api('/api/match-mods',{mods:all});
+    jewelDetails[dKey]=result.mods.map(m=>{
+      const exact=(m.suggestions||[]).filter(c=>c.score===100&&c.zh);
+      const ranked=exact.slice().sort((a,b)=>{
+        const priority=id=>({explicit:0,fractured:1,crafted:2,implicit:3,enchant:4,pseudo:5}[String(id).split('.')[0]]??9);
+        return priority(a.id)-priority(b.id)||String(a.id).localeCompare(String(b.id));
+      });
+      const auto=(!m.id&&ranked.length)?ranked[0]:null;
+      const chosenId=m.id||auto?.id||null;
+      const chosenZh=m.id?m.zh:(auto?.zh||m.zh||'');
+      return {
+        ...m,
+        id:chosenId,
+        zh:chosenZh,
+        status:auto?'matched':m.status,
+        translation_status:auto?'verified':m.translation_status,
+        checked:(m.status==='matched'||!!auto),
+        minValue:'',
+      };
+    });
+  }catch(e){
+    modErrors[dKey]=e.message;
+  }finally{
+    modLoading[dKey]=false;
+    if(activeView!=='import'&&activeView!=='monitor')renderLinks();
+  }
+}
+
+function renderLinks(){
+  const tab=activeView==='import'||activeView==='monitor'?lastListTab:activeView;
+  const term=$('find').value.trim().toLowerCase();
+  const mode=$('filterMode').value;
+  rows=groupedForTab(tab).filter(x=>{
+    let tr=tab==='rare'?translations['base|'+x.base]:translated(x);
+    let ok=!!(tr&&tr.status==='verified'&&tr.zh);
+    if(mode==='verified'&&!ok)return false;
+    if(mode==='pending'&&ok)return false;
+    return (labelName(x)+' '+x.name+' '+x.base+' '+localizedBase(x)+' '+x.slot).toLowerCase().includes(term);
+  });
+
+  $('linkCount').textContent=rows.length;
+  $('linkTab').textContent=TAB_NAMES[tab];
+
+  $('links').innerHTML=rows.map((x,i)=>{
+    let tr=translated(x), ok=tr&&tr.status==='verified'&&tr.zh;
+    if(tab==='rare'){tr=translations['base|'+x.base];ok=!!(tr&&tr.status==='verified'&&tr.zh);}
+    let nameCell=ok
+      ?(tr.source?`<a class="item-zh-link" href="${esc(tr.source)}" target="_blank" rel="noopener">${esc(tr.zh)}</a>`:`<span class="item-zh-link">${esc(tr.zh)}</span>`)
+      :`<span class="item-unverified">${esc(x.name)}</span><span class="pending-tag">待核對</span>`;
+
+    const dKey=detailKey(x);
+    const isExpanded=expandedDetailKey===dKey;
+    const cachedMods=jewelDetails[dKey];
+    const checkedCount=cachedMods?cachedMods.filter(z=>z.checked&&z.id).length:0;
+    const modBtnLabel=isExpanded?'收合篩選 ▲':(checkedCount>0?`詞綴篩選 (${checkedCount}) ▼`:'詞綴篩選 ▼');
+    const modBtnClass=isExpanded?'btn btn-sky-solid btn-sm':'btn btn-sky-outline btn-sm';
+
+    const rowHtml=`<tr class="item-row ${isExpanded?'expanded':''}">
+      <td>${nameCell}</td>
+      <td>
+        <div class="op-group">
+          <button class="btn btn-mint btn-sm" data-trade="${i}" ${(ok||tab==='rare')?'':'disabled title="尚未核對台服中文名稱"'}>一鍵搜尋</button>
+          <button class="btn btn-amber-outline btn-sm" data-monitor="${i}" ${(ok||tab==='rare')?'':'disabled title="尚未核對台服中文名稱"'}>🔔 監控</button>
+          ${(tab==='jewels'||tab==='rare')?`<button class="${modBtnClass}" data-mods="${i}">${modBtnLabel}</button>`:''}
+          <button class="btn btn-default btn-sm" data-edit="${i}">修正</button>
+          <button class="btn btn-default btn-sm" data-copy="${i}">複製</button>
+        </div>
+      </td>
+    </tr>`;
+
+    return isExpanded ? rowHtml + buildInlineDrawer(x, i, dKey) : rowHtml;
+  }).join('')||'<tr><td colspan="2" style="text-align:center;padding:36px;color:var(--text-muted);font-size:15px">尚無符合條件的資料，請先至左側「資料匯入」貼上 PoB 匯出碼</td></tr>';
+
+  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
+    const x=rows[+b.dataset.edit],kind=tab==='rare'?'base':x.kind,english=tab==='rare'?x.base:x.name;
+    const current=tab==='rare'?localizedBase(x):labelName(x);
+    const value=prompt('請輸入已確認的台服繁體中文名稱（搜尋時將使用此名稱）\n英文：'+english,current);
+    if(!value||!value.trim())return;
+    translations[kind+'|'+english]={en:english,zh:value.trim(),status:'verified',source:null,manual:true};
+    persistNames();renderLinks();msg('已儲存中文名稱修正');
+  });
+
+  document.querySelectorAll('[data-mods]').forEach(b=>b.onclick=()=>toggleInlineMods(rows[+b.dataset.mods]));
+
+  document.querySelectorAll('[data-close-drawer]').forEach(b=>b.onclick=()=>{
+    expandedDetailKey=null;
+    renderLinks();
+  });
+
+  document.querySelectorAll('[data-select-all]').forEach(b=>b.onclick=()=>{
+    const arr=jewelDetails[b.dataset.selectAll]||[];
+    arr.forEach(m=>{if(m.id)m.checked=true});
+    renderLinks();
+  });
+
+  document.querySelectorAll('[data-clear-all]').forEach(b=>b.onclick=()=>{
+    const arr=jewelDetails[b.dataset.clearAll]||[];
+    arr.forEach(m=>{m.checked=false});
+    renderLinks();
+  });
+
+  document.querySelectorAll('[data-mod-key]').forEach(b=>b.onchange=()=>{
+    const arr=jewelDetails[b.dataset.modKey]||[];
+    const m=arr[+b.dataset.mi];
+    if(m)m.checked=b.checked;
+    const n=arr.filter(z=>z.checked&&z.id).length;
+    const rowIdx=rows.findIndex(r=>detailKey(r)===b.dataset.modKey);
+    const countEl=$('drawer-count-'+rowIdx);
+    if(countEl)countEl.textContent='已選取 '+n+' 條詞綴';
+  });
+
+  document.querySelectorAll('[data-min-key]').forEach(inp=>inp.oninput=()=>{
+    const arr=jewelDetails[inp.dataset.minKey]||[];
+    const m=arr[+inp.dataset.minMi];
+    if(m){
+      m.minValue=inp.value;
+      if(inp.value!==''&&m.id)m.checked=true;
+    }
+  });
+
+  document.querySelectorAll('[data-fill-roll]').forEach(btn=>btn.onclick=()=>{
+    const arr=jewelDetails[btn.dataset.fillRoll]||[];
+    const m=arr[+btn.dataset.fillMi];
+    if(m){
+      m.minValue=btn.dataset.roll;
+      if(m.id)m.checked=true;
+      renderLinks();
+    }
+  });
+
+  document.querySelectorAll('[data-choice-key]').forEach(b=>b.onchange=()=>{
+    const arr=jewelDetails[b.dataset.choiceKey]||[];
+    const m=arr[+b.dataset.choiceMi];
+    if(!m)return;
+    const pick=(m.suggestions||[]).find(c=>c.id===b.value);
+    m.id=pick?.id||null;
+    m.zh=pick?.zh||m.zh;
+    m.checked=!!pick;
+    m.translation_status=pick?'verified':'candidate';
+    renderLinks();
+  });
+
+  document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{
+    await navigator.clipboard.writeText(tab==='rare'?localizedBase(rows[+b.dataset.copy]):labelName(rows[+b.dataset.copy]));
+    msg('已複製名稱到剪貼簿');
+  });
+
+  document.querySelectorAll('[data-trade]').forEach(b=>b.onclick=()=>runTradeSearch(+b.dataset.trade,b));
+  document.querySelectorAll('[data-drawer-trade]').forEach(b=>b.onclick=()=>runTradeSearch(+b.dataset.drawerTrade,b));
+  document.querySelectorAll('[data-monitor]').forEach(b=>b.onclick=()=>addItemMonitor(+b.dataset.monitor,b));
+  document.querySelectorAll('[data-drawer-monitor]').forEach(b=>b.onclick=()=>addItemMonitor(+b.dataset.drawerMonitor,b));
+}
+
+/* Monitor View Rendering & Actions */
+function formatTs(ts){
+  if(!ts)return '—';
+  const d=new Date(ts*1000);
+  return d.toTimeString().slice(0,8);
+}
+
+function refreshMonitorView(){
+  if($('clientIdDisplay'))$('clientIdDisplay').textContent=clientId;
+  if($('discordWebhookInput')&&document.activeElement!==$('discordWebhookInput')){
+    $('discordWebhookInput').value=monitorData.discordWebhook||'';
+  }
+  const mons=monitorData.monitors||[];
+  const alerts=monitorData.alerts||[];
+
+  $('monitorTableBody').innerHTML=mons.map(m=>{
+    const condHtml=m.condSummary
+      ?`<div class="cond-tags">${m.condSummary.split(' ｜ ').map(c=>`<span class="cond-tag">${esc(c)}</span>`).join('')}</div>`
+      :`<div style="font-size:13px;color:var(--text-muted);margin-top:2px">無指定詞綴（任何新上架即通知）</div>`;
+    const errHtml=m.lastError?`<div style="font-size:12px;color:var(--danger);margin-top:4px">異常：${esc(m.lastError)}</div>`:'';
+    const statusPill=m.lastError
+      ?`<span class="status-pill err">檢查異常</span>`
+      :(m.enabled?`<span class="status-pill ok">監控中</span>`:`<span class="status-pill paused">已暫停</span>`);
+    const timeInfo=`<div>上次：${formatTs(m.lastChecked)}</div><div style="font-size:13px;color:var(--text-muted)">下次：${m.enabled?formatTs(m.nextCheck):'已暫停'}</div>`;
+    return `<tr>
+      <td>
+        <div style="font-weight:700;color:var(--text-main);font-size:16px">${esc(m.displayName)}</div>
+        ${condHtml}
+        ${errHtml}
+      </td>
+      <td>${esc(m.league)}</td>
+      <td><strong>${m.lastTotal??0}</strong> 筆</td>
+      <td>${timeInfo}</td>
+      <td>${statusPill}</td>
+      <td>
+        <div class="op-group">
+          <button class="btn btn-sky-outline btn-xs" data-mon-check="${esc(m.id)}">立即檢查</button>
+          ${m.lastUrl?`<a class="btn btn-mint btn-xs" href="${esc(m.lastUrl)}" target="_blank" rel="noopener">開啟賣場</a>`:''}
+          <button class="btn btn-default btn-xs" data-mon-toggle="${esc(m.id)}">${m.enabled?'暫停':'啟用'}</button>
+          <button class="btn btn-danger-outline btn-xs" data-mon-del="${esc(m.id)}">刪除</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted);font-size:15px">目前沒有監控中的裝備，請至左側「裝備統計清單」點擊任意裝備的「🔔 監控」加入</td></tr>';
+
+  $('alertsTableBody').innerHTML=alerts.map(a=>{
+    const modsSub=(a.mods&&a.mods.length)?`<div style="font-size:13px;color:var(--text-muted);margin-top:3px">${esc(a.mods.slice(0,3).join(' / '))}</div>`:'';
+    return `<tr>
+      <td>${esc(a.time||'')}</td>
+      <td>
+        <div style="font-weight:700;color:var(--blue)">${esc(a.displayName)} <span style="font-size:12px;color:var(--text-muted);font-weight:400">(${esc(a.league)})</span></div>
+        ${modsSub}
+      </td>
+      <td><strong style="color:#d97706">${esc(a.price)}</strong></td>
+      <td>${esc(a.seller)}</td>
+      <td><a class="btn btn-mint btn-xs" href="${esc(a.url)}" target="_blank" rel="noopener">前往賣場</a></td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted);font-size:15px">尚無新上架商品通知紀錄</td></tr>';
+
+  document.querySelectorAll('[data-mon-check]').forEach(b=>b.onclick=async()=>{
+    b.disabled=true;b.textContent='檢查中…';
+    try{
+      const r=await api('/api/monitors/check',{id:b.dataset.monCheck});
+      await pollMonitors(true);
+      const nc=r.result?.newCount??0;
+      msg(nc>0?`檢查完成！發現 ${nc} 筆新上架商品！`:`檢查完成，目前共 ${r.result?.total??0} 筆在售，尚無新增商品。`);
+    }catch(e){msg(e.message,true)}
+    finally{b.disabled=false}
+  });
+
+  document.querySelectorAll('[data-mon-toggle]').forEach(b=>b.onclick=async()=>{
+    await api('/api/monitors/toggle',{id:b.dataset.monToggle});
+    await pollMonitors(true);
+  });
+
+  document.querySelectorAll('[data-mon-del]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('確定刪除此監控項目？'))return;
+    await api('/api/monitors/delete',{id:b.dataset.monDel});
+    await pollMonitors(true);
+    msg('已刪除監控項目');
+  });
+}
+
+$('copyClientIdBtn').onclick=async()=>{
+  await navigator.clipboard.writeText(clientId);
+  msg('已複製你的專屬監控代碼：'+clientId);
+};
+
+$('switchClientIdBtn').onclick=async()=>{
+  const val=prompt('請輸入你的專屬監控代碼（6~64 字元英數字，跨裝置輸入相同代碼即可同步監控清單）：',clientId);
+  if(!val||!val.trim())return;
+  const cleaned=val.trim();
+  if(!/^[A-Za-z0-9_-]{6,64}$/.test(cleaned)){
+    msg('代碼格式不正確（需為 6~64 碼英文、數字、底線或連字號）',true);
+    return;
+  }
+  clientId=cleaned;
+  localStorage.setItem('poeClientId',clientId);
+  updateNotifStatusUI();
+  await pollMonitors(true);
+  msg('已切換至監控代碼：'+clientId);
+};
+
+$('enableBrowserNotif').onclick=async()=>{
+  if(!('Notification' in window)){
+    msg('此瀏覽器不支援桌面通知',true);
+    return;
+  }
+  const perm=await Notification.requestPermission();
+  updateNotifStatusUI();
+  playAlertSound();
+  if(perm==='granted'){
+    showBrowserNotification('🔔 POE 市集監控通知測試','桌面通知與提示音效已就緒！有新商品時會自動跳出此通知。','https://pathofexile.tw/trade');
+    msg('已開啟桌面通知並播放測試音效');
+  }else{
+    msg('未能取得桌面通知權限，請確認瀏覽器設定（音效仍可正常播放）',true);
+  }
+};
+
+$('soundEnabled').onchange=()=>{
+  soundEnabled=$('soundEnabled').checked;
+  localStorage.setItem('poeSoundEnabled',String(soundEnabled));
+  if(soundEnabled)playAlertSound();
+};
+
+$('saveDiscordBtn').onclick=async()=>{
+  try{
+    await api('/api/monitors/settings',{discordWebhook:$('discordWebhookInput').value.trim()});
+    await pollMonitors(true);
+    msg('Discord Webhook 設定已儲存');
+  }catch(e){msg(e.message,true)}
+};
+
+$('testDiscordBtn').onclick=async()=>{
+  const b=$('testDiscordBtn');b.disabled=true;
+  try{
+    const wh=$('discordWebhookInput').value.trim();
+    if(wh)await api('/api/monitors/settings',{discordWebhook:wh});
+    await api('/api/monitors/test-discord',{discordWebhook:wh});
+    msg('已發送測試通知到 Discord 頻道！');
+  }catch(e){msg(e.message,true)}
+  finally{b.disabled=false}
+};
+
+$('checkAllMonitorsBtn').onclick=async()=>{
+  const b=$('checkAllMonitorsBtn');b.disabled=true;
+  try{
+    const r=await api('/api/monitors/check',{});
+    await pollMonitors(true);
+    msg(`已檢查 ${r.checked} 項監控，發現 ${r.newCount} 筆新上架商品。`);
+  }catch(e){msg(e.message,true)}
+  finally{b.disabled=false}
+};
+
+$('clearAlertsBtn').onclick=async()=>{
+  await api('/api/monitors/clear-alerts',{});
+  await pollMonitors(true);
+  msg('已清空通知紀錄');
+};
+
+async function pollMonitors(skipNotify=false){
+  try{
+    const res=await fetch('/api/monitors?cid='+encodeURIComponent(clientId),{
+      headers:{'X-Client-Id':clientId}
+    });
+    const d=await res.json();
+    if(!d.ok)return;
+    monitorData=d;
+    const activeCount=(d.monitors||[]).filter(m=>m.enabled).length;
+    $('badge-monitors').textContent=activeCount;
+
+    const unnotified=(d.alerts||[]).filter(a=>!a.browserNotified);
+    if(unnotified.length&&!skipNotify){
+      playAlertSound();
+      const first=unnotified[0];
+      const title=unnotified.length===1
+        ?`🔔 POE 新商品：${first.displayName}（${first.price}）`
+        :`🔔 POE 市集發現 ${unnotified.length} 筆新上架商品！`;
+      const body=unnotified.slice(0,3).map(a=>`• ${a.displayName}｜${a.price}｜賣家：${a.seller}`).join('\n');
+      showBrowserNotification(title,body,first.url);
+      msg(`${title} — 點擊「市場自動監控」查看詳情`);
+      await api('/api/monitors/ack',{ids:unnotified.map(a=>a.id)});
+    }
+    if(activeView==='monitor')refreshMonitorView();
+  }catch(e){}
+}
+
+async function verifyNames(){
+  const b=$('translate');b.disabled=true;msg('正在核對官方與 PoEDB 中文名稱…');
+  try{
+    let all=[];
+    for(let c of chars){
+      for(let x of (c.items||[]))if(x.rarity==='UNIQUE')all.push({name:x.name,kind:'unique'});else if(x.rarity==='RARE'&&x.base)all.push({name:x.base,kind:'base'});
+      for(let x of (c.skills||[]))all.push({name:x.name,kind:'gem'});
+    }
+    const unique=[...new Map(all.map(x=>[nameKey(x),x])).values()].filter(x=>!translated(x)||translated(x).status!=='verified');
+    let confirmed=0,missing=0;
+    for(let i=0;i<unique.length;i+=40){
+      const batch=unique.slice(i,i+40);
+      const result=(await api('/api/names',{entries:batch})).names;
+      for(let j=0;j<batch.length;j++){
+        if(result[j]?.status==='verified'&&result[j]?.zh){
+          if(!translations[nameKey(batch[j])]?.manual)translations[nameKey(batch[j])]=result[j];
+          confirmed++;
+        }else missing++;
+      }
+      persistNames();renderLinks();
+    }
+    msg(`中文名稱核對完成：新增確認 ${confirmed} 筆，尚未確認 ${missing} 筆。`);
+  }catch(e){msg('中文名稱核對中斷：'+e.message,true)}
+  finally{b.disabled=false}
+}
+$('translate').onclick=verifyNames;
+
+async function seedNames(){
+  try{
+    const all=[];
+    for(let c of chars){
+      for(let x of c.items||[])if(x.rarity==='UNIQUE')all.push({name:x.name,kind:'unique'});else if(x.rarity==='RARE'&&x.base)all.push({name:x.base,kind:'base'});
+      for(let x of c.skills||[])all.push({name:x.name,kind:'gem'});
+    }
+    const seeds=[...new Map(all.map(x=>[nameKey(x),x])).values()].filter(x=>!translated(x));
+    if(!seeds.length)return;
+    const d=await api('/api/names',{entries:seeds.slice(0,100),seedOnly:true});
+    d.names.forEach((x,i)=>{if(x.status==='verified')translations[nameKey(seeds[i])]=x});
+    persistNames();
+    if(activeView!=='import'&&activeView!=='monitor')renderLinks();
+  }catch(e){}
+}
+
+$('copyAll').onclick=async()=>{
+  await navigator.clipboard.writeText(rows.map(x=>`${x.kind==='rare'?localizedBase(x):labelName(x)}\t${localizedBase(x)||x.slot}\t${x.count}/${chars.length}`).join('\n'));
+  msg(`已複製 ${rows.length} 筆清單`);
+};
+
+// 背景預先載入官方詞綴庫與監控狀態
+fetch('/api/catalogue-status').catch(()=>{});
+pollMonitors(true);
+setInterval(()=>pollMonitors(false),10000);
+
+render();
+switchView(activeView);
+seedNames();
+</script>
+</body>
+</html>
