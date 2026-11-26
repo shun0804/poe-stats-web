@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>POE 裝備統計助手 V2.27</title>
+<title>POE 裝備統計助手 V2.28</title>
 <style>
 :root{
   --nav-bg:#2b3643;
@@ -426,7 +426,7 @@ tr.mod-drawer-row td{
     <div class="brand">
       <span class="brand-logo">P</span>
       <span>POE 裝備統計</span>
-      <span class="ver-pill">V2.27</span>
+      <span class="ver-pill">V2.28</span>
     </div>
   </div>
   <div class="topbar-right">
@@ -971,7 +971,10 @@ $('toggleSidebar').onclick=()=>$('sidebar').classList.toggle('collapsed');
 function switchView(view){
   activeView=view;
   if(view!=='import'&&view!=='monitor'&&view!=='manual')lastListTab=view;
-  expandedDetailKey=null;
+  if(expandedDetailKey){
+    delete jewelDetails[expandedDetailKey];
+    expandedDetailKey=null;
+  }
 
   document.querySelectorAll('[data-view]').forEach(el=>{
     el.classList.toggle('active',el.dataset.view===view);
@@ -1116,7 +1119,10 @@ function buildSearchPayload(x){
     throw Error('中文名稱尚未核對，請先核對或手動修正中文名稱');
   }
   if(!league)throw Error('請填入台服聯盟名稱');
-  const detail=jewelDetails[detailKey(x)];
+  const dKey=detailKey(x);
+  // 只有在詞綴篩選目前處於「展開」狀態時，才一併帶入勾選的詞綴；收合後則直接搜尋名稱
+  const isDrawerOpen=(expandedDetailKey===dKey);
+  const detail=isDrawerOpen?jewelDetails[dKey]:null;
   const selected=((tab==='gear'||tab==='jewels'||tab==='rare')&&detail)?detail.filter(z=>z.checked&&z.id):[];
   const statIds=selected.map(z=>z.id);
   const statFilters=selected.map(z=>{
@@ -1149,7 +1155,7 @@ function buildInlineDrawer(x, i, dKey){
 
   let headInfo='正在比對官方交易詞綴資料…';
   if(!loading&&!err){
-    headInfo=`已對應 ${matchedCount} / ${arr.length} 條詞綴（可填寫最小數值限制，搜尋與監控皆會套用）`;
+    headInfo=`已對應 ${matchedCount} / ${arr.length} 條詞綴（展開期間搜尋或監控將套用勾選條件；收合後則僅搜名稱）`;
   }else if(err){
     headInfo='讀取詞綴失敗';
   }
@@ -1252,6 +1258,8 @@ async function addItemMonitor(rowIndex, triggerBtn){
 async function toggleInlineMods(x){
   const dKey=detailKey(x);
   if(expandedDetailKey===dKey){
+    // 收合後清空詞綴條件，回到僅搜尋名稱模式
+    delete jewelDetails[dKey];
     expandedDetailKey=null;
     renderLinks();
     return;
@@ -1259,11 +1267,10 @@ async function toggleInlineMods(x){
   const variants=x.variants||[];
   if(!variants.length){msg('沒有這件裝備的 PoB 詞綴資料',true);return}
 
-  expandedDetailKey=dKey;
-  if(jewelDetails[dKey]){
-    renderLinks();
-    return;
+  if(expandedDetailKey){
+    delete jewelDetails[expandedDetailKey];
   }
+  expandedDetailKey=dKey;
 
   const all=[...new Set(variants.flatMap(v=>v.mods))];
   modLoading[dKey]=true;
@@ -1322,10 +1329,8 @@ function renderLinks(){
       :`<span class="item-unverified">${esc(x.name)}</span><span class="pending-tag">待核對</span>`;
 
     const dKey=detailKey(x);
-    const isExpanded=expandedDetailKey===dKey;
-    const cachedMods=jewelDetails[dKey];
-    const checkedCount=cachedMods?cachedMods.filter(z=>z.checked&&z.id).length:0;
-    const modBtnLabel=isExpanded?'收合篩選 ▲':(checkedCount>0?`詞綴篩選 (${checkedCount}) ▼`:'詞綴篩選 ▼');
+    const isExpanded=(expandedDetailKey===dKey);
+    const modBtnLabel=isExpanded?'收合篩選 ▲':'詞綴篩選 ▼';
     const modBtnClass=isExpanded?'btn btn-sky-solid btn-sm':'btn btn-sky-outline btn-sm';
 
     const rowHtml=`<tr class="item-row ${isExpanded?'expanded':''}">
@@ -1356,7 +1361,10 @@ function renderLinks(){
   document.querySelectorAll('[data-mods]').forEach(b=>b.onclick=()=>toggleInlineMods(rows[+b.dataset.mods]));
 
   document.querySelectorAll('[data-close-drawer]').forEach(b=>b.onclick=()=>{
-    expandedDetailKey=null;
+    if(expandedDetailKey){
+      delete jewelDetails[expandedDetailKey];
+      expandedDetailKey=null;
+    }
     renderLinks();
   });
 

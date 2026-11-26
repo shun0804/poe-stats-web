@@ -213,6 +213,31 @@ STAT_KIND_LABELS = {
     'pseudo': '總和',
 }
 
+LOCAL_ADDED_DMG_RE = re.compile(r'^(附加\s*#\s*至\s*#\s*.+?傷害)$')
+
+
+def is_local_added_dmg_zh(zh):
+    return bool(re.match(r'^附加\s*#\s*至\s*#\s*.+?傷害\s*\(部分\)$', (zh or '').strip()))
+
+
+def upgrade_to_local_damage(sid, zh, tw_by_text):
+    if not zh:
+        return sid, zh
+    s = zh.strip()
+    if s.endswith('(部分)'):
+        return sid, s
+    m = LOCAL_ADDED_DMG_RE.match(s)
+    if not m:
+        return sid, zh
+    target_zh = m.group(1) + ' (部分)'
+    cands = tw_by_text.get(normalize_stat(target_zh), [])
+    if not cands:
+        return sid, zh
+    prefix = sid.split('.', 1)[0] + '.' if '.' in sid else ''
+    same_kind = [c for c in cands if c['id'].startswith(prefix)]
+    chosen = same_kind[0] if same_kind else cands[0]
+    return chosen['id'], chosen['text']
+
 
 def parse_catalogue(data):
     if not isinstance(data, dict) or not isinstance(data.get('result'), list):
@@ -282,6 +307,9 @@ def fetch_trade_stats(refresh=False):
     tw = bylang.get('tw', [])
     zh_by_id = {e['id']: e['text'] for e in tw if re.search(r'[\u3400-\u9fff]', e['text'])}
     en_by_id = {e['id']: e['text'] for e in en}
+    tw_by_text = {}
+    for e in tw:
+        tw_by_text.setdefault(normalize_stat(e['text']), []).append(e)
     entries = en
     meta = {
         'english_count': len(en),
@@ -296,6 +324,7 @@ def fetch_trade_stats(refresh=False):
         zh_by_id=zh_by_id,
         en_by_id=en_by_id,
         tw_entries=tw,
+        tw_by_text=tw_by_text,
         meta=meta,
         expires=now + 86400,
     )
@@ -309,7 +338,8 @@ def search_trade_stats(query_str, kind_filter='all', limit=30):
     stats, zh_by_id, _ = fetch_trade_stats()
     en_by_id = STAT_CACHE.get('en_by_id', {})
     tw_entries = STAT_CACHE.get('tw_entries', [])
-    allowed = ('explicit.', 'implicit.', 'enchant.', 'crafted.', 'pseudo.', 'fractured.')
+    tw_by_text = STAT_CACHE.get('tw_by_text', {})
+    allowed = ('explicit.', 'implicit.', 'enchant.', 'crafted.', 'pseudo.', 'fractured.', 'scourge.', 'crucible.', 'veiled.')
     kind_prio = {'explicit': 0, 'pseudo': 1, 'implicit': 2, 'fractured': 3, 'crafted': 4, 'enchant': 5}
 
     tokens = [t for t in re.split(r'\s+', q) if t]
@@ -317,7 +347,10 @@ def search_trade_stats(query_str, kind_filter='all', limit=30):
     scored = []
 
     def check_candidate(sid, zh_text, en_text):
-        if sid in seen_ids or not sid.startswith(allowed):
+        if not sid.startswith(allowed):
+            return
+        sid, zh_text = upgrade_to_local_damage(sid, zh_text, tw_by_text)
+        if sid in seen_ids:
             return
         k = sid.split('.', 1)[0]
         if kind_filter and kind_filter != 'all' and k != kind_filter:
@@ -328,12 +361,13 @@ def search_trade_stats(query_str, kind_filter='all', limit=30):
         if not all(t in hay for t in tokens):
             return
         seen_ids.add(sid)
-        # Higher rank for exact substring match and preferred affix type
         exact_boost = 0 if (q in zh_low or q in en_low) else 1
         prefix_boost = 0 if (zh_low.startswith(q) or en_low.startswith(q)) else 1
+        local_bonus = 0 if is_local_added_dmg_zh(zh_text) else 1
         scored.append((
             exact_boost,
             prefix_boost,
+            local_bonus,
             kind_prio.get(k, 9),
             len(zh_text or en_text),
             {
@@ -352,8 +386,8 @@ def search_trade_stats(query_str, kind_filter='all', limit=30):
         sid = e['id']
         check_candidate(sid, zh_by_id.get(sid, ''), e['text'])
 
-    scored.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
-    return [x[4] for x in scored[:limit]]
+    scored.sort(key=lambda x: (x[0], x[1], x[2], x[3], x[4]))
+    return [x[5] for x in scored[:limit]]
 
 
 def import_catalogue(lang, data):
@@ -457,7 +491,9 @@ def choose_exact_trade_stat(entries, zh_by_id, preferred='explicit'):
 
     def key(entry):
         kind = entry['id'].split('.', 1)[0]
-        return (0 if kind == preferred else 1, priority.get(kind, 9), entry['id'])
+        zh = zh_by_id.get(entry['id'], '')
+        local_bonus = 0 if is_local_added_dmg_zh(zh) else 1
+        return (0 if kind == preferred else 1, local_bonus, priority.get(kind, 9), entry['id'])
 
     options = [x for x in entries if zh_by_id.get(x['id'])]
     return sorted(options, key=key)[0] if options else None
@@ -483,7 +519,7 @@ def match_mods(mods):
         meta = {}
         catalogue_error = '無法取得交易詞綴資料：' + str(exc)[:180]
     tw = STAT_CACHE.get('tw_entries', [])
-    allowed = ('explicit.', 'implicit.', 'enchant.', 'crafted.', 'pseudo.', 'fractured.')
+    allowed = ('explicit.', 'implicit.', 'enchant.', 'crafted.', 'pseudo.', 'fractured.', 'scourge.', 'crucible.', 'veiled.')
     stats = [e for e in stats if e['id'].startswith(allowed)]
     tw = [e for e in tw if e['id'].startswith(allowed)]
     by_text = {}
@@ -503,7 +539,6 @@ def match_mods(mods):
         pref_kind = detect_mod_preferred_kind(mod)
         norm = normalize_stat(mod)
         choices = by_text.get(norm, [])
-        # Also support direct Chinese mod matching (e.g. pasted from TW PoE client)
         if not choices and re.search(r'[\u3400-\u9fff]', mod):
             choices = tw_by_text.get(norm, [])
         known_zh = known_mod_zh(mod) or watcher_zh_hint(mod)
@@ -521,11 +556,19 @@ def match_mods(mods):
                 if score >= 0.52:
                     scored.append((score, e))
             scored.sort(key=lambda z: -z[0])
-            suggestions = [
-                {'id': e['id'], 'text': e['text'], 'zh': zh_by_id.get(e['id'], ''), 'score': round(score * 100)}
-                for score, e in scored
-                if zh_by_id.get(e['id'])
-            ][:8]
+            suggestions = []
+            seen_sug = set()
+            for score, e in scored:
+                raw_zh = zh_by_id.get(e['id'], '')
+                if not raw_zh:
+                    continue
+                up_id, up_zh = upgrade_to_local_damage(e['id'], raw_zh, tw_by_text)
+                if up_id in seen_sug:
+                    continue
+                seen_sug.add(up_id)
+                suggestions.append({'id': up_id, 'text': e['text'], 'zh': up_zh, 'score': round(score * 100)})
+                if len(suggestions) >= 8:
+                    break
             exact_ids = {
                 e['id']: e for score, e in scored if score >= 0.999999 and zh_by_id.get(e['id'])
             }
@@ -539,6 +582,7 @@ def match_mods(mods):
         if len(ids) == 1:
             sid = next(iter(ids))
             zh = zh_by_id.get(sid, '') or known_zh
+            sid, zh = upgrade_to_local_damage(sid, zh, tw_by_text)
             k = sid.split('.', 1)[0]
             output.append({
                 'mod': mod,
@@ -554,20 +598,25 @@ def match_mods(mods):
             })
         elif choices:
             pick = choose_exact_trade_stat(choices, zh_by_id, preferred=pref_kind)
-            opts = [
-                {'id': x['id'], 'zh': zh_by_id.get(x['id'], known_zh), 'text': x['text'], 'score': 100}
-                for x in choices[:12]
-            ]
+            opts = []
+            seen_opt = set()
+            for x in choices[:12]:
+                ox_id, ox_zh = upgrade_to_local_damage(x['id'], zh_by_id.get(x['id'], known_zh), tw_by_text)
+                if ox_id in seen_opt:
+                    continue
+                seen_opt.add(ox_id)
+                opts.append({'id': ox_id, 'zh': ox_zh, 'text': x['text'], 'score': 100})
             if pick:
-                k = pick['id'].split('.', 1)[0]
+                pid, pzh = upgrade_to_local_damage(pick['id'], zh_by_id[pick['id']], tw_by_text)
+                k = pid.split('.', 1)[0]
                 output.append({
                     'mod': mod,
                     'status': 'matched',
-                    'id': pick['id'],
+                    'id': pid,
                     'kind': k,
                     'kindLabel': STAT_KIND_LABELS.get(k, k),
                     'text': pick['text'],
-                    'zh': zh_by_id[pick['id']],
+                    'zh': pzh,
                     'rolls': extract_rolls(mod),
                     'translation_status': 'auto',
                     'reason': '多個相同文字的交易 ID，已優先選取對應詞綴；可自行更改',
@@ -614,7 +663,6 @@ def parse_pasted_item_text(raw_text):
     base = ''
     has_header = False
 
-    # Check if this is full PoE item clipboard text
     rarity_idx = next(
         (idx for idx, ln in enumerate(lines) if ln.startswith(('Rarity:', '稀有度:'))),
         -1,
@@ -666,7 +714,6 @@ def parse_pasted_item_text(raw_text):
         if ln:
             mod_lines.append(ln)
 
-    # Resolve item name / base to TW official name if English
     resolved_zh = ''
     if kind == 'unique' and name:
         if re.search(r'[\u3400-\u9fff]', name):
@@ -753,7 +800,7 @@ def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_
                 or len(stat_ids) > 12
                 or any(
                     not isinstance(x, str)
-                    or not re.fullmatch(r'(explicit|implicit|enchant|crafted|fractured|pseudo)\.stat_[0-9]+', x)
+                    or not re.fullmatch(r'[a-z]{2,20}\.[a-z0-9_]{3,80}', x)
                     for x in stat_ids
                 )
             ):
@@ -1302,7 +1349,6 @@ def get_official_item_map(refresh=False):
                             for en_e, tw_e in zip(en_list, tw_list):
                                 maps['unique'][norm_item_key(en_e['name'])] = tw_e['name']
 
-        # Build unified search index (kind, zh, en)
         rev_unique = {tw_v: en_k for en_k, tw_v in maps['unique'].items()}
         rev_base = {tw_v: en_k for en_k, tw_v in maps['base'].items()}
         rev_gem = {tw_v: en_k for en_k, tw_v in maps['gem'].items()}
@@ -1539,7 +1585,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
         if route == '/health':
-            self.reply({'ok': True, 'version': '2.27-web'})
+            self.reply({'ok': True, 'version': '2.29-web'})
             return
         if route == '/api/catalogue-status':
             try:
@@ -1809,7 +1855,7 @@ if __name__ == '__main__':
     host = '0.0.0.0'
     port = int(os.environ.get('PORT', '8766'))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'POE 裝備統計 V2.27 (傳奇詞綴篩選 + 手動新增監控分頁): http://{host}:{port}/')
+    print(f'POE 裝備統計 V2.29 (修正偽造總和與特殊詞綴 ID 驗證): http://{host}:{port}/')
     is_cloud = any(os.environ.get(k) for k in ('PORT', 'RENDER', 'ZEABUR', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME'))
     if not is_cloud:
         threading.Timer(0.8, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()
