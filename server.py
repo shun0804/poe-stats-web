@@ -204,6 +204,15 @@ CATALOGUE_URLS = {
     'tw': 'https://pathofexile.tw/api/trade/data/stats',
 }
 
+STAT_KIND_LABELS = {
+    'explicit': '外顯',
+    'implicit': '固定',
+    'fractured': '破裂',
+    'crafted': '工藝',
+    'enchant': '附魔',
+    'pseudo': '總和',
+}
+
 
 def parse_catalogue(data):
     if not isinstance(data, dict) or not isinstance(data.get('result'), list):
@@ -272,6 +281,7 @@ def fetch_trade_stats(refresh=False):
     en = bylang.get('en', [])
     tw = bylang.get('tw', [])
     zh_by_id = {e['id']: e['text'] for e in tw if re.search(r'[\u3400-\u9fff]', e['text'])}
+    en_by_id = {e['id']: e['text'] for e in en}
     entries = en
     meta = {
         'english_count': len(en),
@@ -281,8 +291,69 @@ def fetch_trade_stats(refresh=False):
         'chinese_count': len(zh_by_id),
         'english_available': bool(en),
     }
-    STAT_CACHE.update(entries=entries, zh_by_id=zh_by_id, tw_entries=tw, meta=meta, expires=now + 86400)
+    STAT_CACHE.update(
+        entries=entries,
+        zh_by_id=zh_by_id,
+        en_by_id=en_by_id,
+        tw_entries=tw,
+        meta=meta,
+        expires=now + 86400,
+    )
     return entries, zh_by_id, meta
+
+
+def search_trade_stats(query_str, kind_filter='all', limit=30):
+    q = str(query_str or '').strip().lower()
+    if not q:
+        return []
+    stats, zh_by_id, _ = fetch_trade_stats()
+    en_by_id = STAT_CACHE.get('en_by_id', {})
+    tw_entries = STAT_CACHE.get('tw_entries', [])
+    allowed = ('explicit.', 'implicit.', 'enchant.', 'crafted.', 'pseudo.', 'fractured.')
+    kind_prio = {'explicit': 0, 'pseudo': 1, 'implicit': 2, 'fractured': 3, 'crafted': 4, 'enchant': 5}
+
+    tokens = [t for t in re.split(r'\s+', q) if t]
+    seen_ids = set()
+    scored = []
+
+    def check_candidate(sid, zh_text, en_text):
+        if sid in seen_ids or not sid.startswith(allowed):
+            return
+        k = sid.split('.', 1)[0]
+        if kind_filter and kind_filter != 'all' and k != kind_filter:
+            return
+        zh_low = (zh_text or '').lower()
+        en_low = (en_text or '').lower()
+        hay = zh_low + ' ' + en_low
+        if not all(t in hay for t in tokens):
+            return
+        seen_ids.add(sid)
+        # Higher rank for exact substring match and preferred affix type
+        exact_boost = 0 if (q in zh_low or q in en_low) else 1
+        prefix_boost = 0 if (zh_low.startswith(q) or en_low.startswith(q)) else 1
+        scored.append((
+            exact_boost,
+            prefix_boost,
+            kind_prio.get(k, 9),
+            len(zh_text or en_text),
+            {
+                'id': sid,
+                'zh': zh_text or en_text,
+                'en': en_text or '',
+                'kind': k,
+                'kindLabel': STAT_KIND_LABELS.get(k, k),
+            },
+        ))
+
+    for e in tw_entries:
+        sid = e['id']
+        check_candidate(sid, e['text'], en_by_id.get(sid, ''))
+    for e in stats:
+        sid = e['id']
+        check_candidate(sid, zh_by_id.get(sid, ''), e['text'])
+
+    scored.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
+    return [x[4] for x in scored[:limit]]
 
 
 def import_catalogue(lang, data):
@@ -300,6 +371,7 @@ def extract_rolls(s):
 
 def normalize_stat(s):
     s = re.sub(r'\{[^}]+\}', '', s)
+    s = re.sub(r'\((?:implicit|crafted|fractured|enchant|scourge|crucible)\)', '', s, flags=re.I)
     s = re.sub(r'(?<![\w#])[-+]?\d+(?:[.,]\d+)?', '#', s)
     s = s.replace('’', "'").replace('–', '-').replace('＋', '+')
     s = re.sub(r'\s*\((?:local|global)\)\s*', ' ', s, flags=re.I)
@@ -391,6 +463,14 @@ def choose_exact_trade_stat(entries, zh_by_id, preferred='explicit'):
     return sorted(options, key=key)[0] if options else None
 
 
+def detect_mod_preferred_kind(mod):
+    low = mod.lower()
+    for tag in ('implicit', 'crafted', 'fractured', 'enchant'):
+        if f'({tag})' in low:
+            return tag
+    return 'explicit'
+
+
 def match_mods(mods):
     if not isinstance(mods, list) or len(mods) > 100:
         raise ValueError('詞綴資料格式不正確')
@@ -420,8 +500,12 @@ def match_mods(mods):
     for mod in mods:
         if not isinstance(mod, str) or len(mod) > 500:
             continue
+        pref_kind = detect_mod_preferred_kind(mod)
         norm = normalize_stat(mod)
         choices = by_text.get(norm, [])
+        # Also support direct Chinese mod matching (e.g. pasted from TW PoE client)
+        if not choices and re.search(r'[\u3400-\u9fff]', mod):
+            choices = tw_by_text.get(norm, [])
         known_zh = known_mod_zh(mod) or watcher_zh_hint(mod)
         suggestions = []
         if not choices and stats:
@@ -455,10 +539,13 @@ def match_mods(mods):
         if len(ids) == 1:
             sid = next(iter(ids))
             zh = zh_by_id.get(sid, '') or known_zh
+            k = sid.split('.', 1)[0]
             output.append({
                 'mod': mod,
                 'status': 'matched',
                 'id': sid,
+                'kind': k,
+                'kindLabel': STAT_KIND_LABELS.get(k, k),
                 'text': choices[0]['text'],
                 'zh': zh,
                 'rolls': extract_rolls(mod),
@@ -466,21 +553,24 @@ def match_mods(mods):
                 'suggestions': suggestions,
             })
         elif choices:
-            pick = choose_exact_trade_stat(choices, zh_by_id)
+            pick = choose_exact_trade_stat(choices, zh_by_id, preferred=pref_kind)
             opts = [
                 {'id': x['id'], 'zh': zh_by_id.get(x['id'], known_zh), 'text': x['text'], 'score': 100}
                 for x in choices[:12]
             ]
             if pick:
+                k = pick['id'].split('.', 1)[0]
                 output.append({
                     'mod': mod,
                     'status': 'matched',
                     'id': pick['id'],
+                    'kind': k,
+                    'kindLabel': STAT_KIND_LABELS.get(k, k),
                     'text': pick['text'],
                     'zh': zh_by_id[pick['id']],
                     'rolls': extract_rolls(mod),
                     'translation_status': 'auto',
-                    'reason': '多個相同文字的交易 ID，已優先選取一般詞綴；可自行更改',
+                    'reason': '多個相同文字的交易 ID，已優先選取對應詞綴；可自行更改',
                     'suggestions': opts,
                 })
             else:
@@ -511,6 +601,104 @@ def match_mods(mods):
     return output
 
 
+def parse_pasted_item_text(raw_text):
+    """Parse PoE Ctrl+C item text (EN or TW) or plain modifier lines."""
+    lines = [x.strip() for x in str(raw_text or '').splitlines() if x.strip()]
+    if not lines:
+        raise ValueError('請貼上遊戲內 Ctrl+C 複製的物品文字或詞綴內容')
+    if len(lines) > 120:
+        raise ValueError('貼上內容行數過多')
+
+    kind = 'unique'
+    name = ''
+    base = ''
+    has_header = False
+
+    # Check if this is full PoE item clipboard text
+    rarity_idx = next(
+        (idx for idx, ln in enumerate(lines) if ln.startswith(('Rarity:', '稀有度:'))),
+        -1,
+    )
+    if rarity_idx >= 0:
+        has_header = True
+        r_val = lines[rarity_idx].split(':', 1)[1].strip().lower()
+        if r_val in ('unique', '傳奇'):
+            kind = 'unique'
+        elif r_val in ('gem', '技能寶石'):
+            kind = 'gem'
+        else:
+            kind = 'rare'
+        if rarity_idx + 1 < len(lines) and not lines[rarity_idx + 1].startswith('---'):
+            name = lines[rarity_idx + 1]
+        if rarity_idx + 2 < len(lines) and not lines[rarity_idx + 2].startswith('---'):
+            cand_base = lines[rarity_idx + 2]
+            if ':' not in cand_base:
+                base = cand_base
+
+    ignore_prefixes = (
+        'Item Class:', '物品種類:', 'Rarity:', '稀有度:', 'Quality:', '品質:',
+        'Sockets:', '插槽:', 'Item Level:', '物品等級:', 'LevelReq:', 'Requirements:',
+        '需求:', 'Level:', '等級:', 'Str:', '力量:', 'Dex:', '敏捷:', 'Int:', '智慧:',
+        'Armour:', '護甲:', 'Evasion Rating:', '閃避值:', 'Energy Shield:', '能量護盾:',
+        'Chance to Block:', '格擋機率:', 'Physical Damage:', '物理傷害:',
+        'Elemental Damage:', '元素傷害:', 'Critical Strike Chance:', '暴擊機率:',
+        'Attacks per Second:', '每秒攻擊次數:', 'Weapon Range:', '武器範圍:',
+        'Map Tier:', '地圖階級:', 'Stack Size:', '堆疊數量:', 'Radius:', '範圍:',
+        'Limited to:', '僅限:', 'Note:', '備註:', 'Experience:', '經驗值:',
+        'Catalyst:', '催化劑:', 'Unique ID:', 'Implicits:', 'Variant:',
+        'Selected Variant:', 'Cluster Jewel Skill:', 'Cluster Jewel Node Count:',
+    )
+    ignore_exact = {
+        'Corrupted', '已汙染', 'Mirrored', '已複製', 'Split', '已分化',
+        'Fractured Item', '破裂物品', 'Synthesised Item', '追憶物品',
+        'Unidentified', '未鑑定', 'Historic',
+    }
+
+    mod_lines = []
+    start_idx = rarity_idx + 1 if has_header else 0
+    for ln in lines[start_idx:]:
+        if ln.startswith('---') or ln in ignore_exact or ln.startswith(ignore_prefixes):
+            continue
+        if has_header and (ln == name or ln == base):
+            continue
+        if ln.startswith('{') and '}' in ln:
+            ln = ln.split('}', 1)[1].strip()
+        if ln:
+            mod_lines.append(ln)
+
+    # Resolve item name / base to TW official name if English
+    resolved_zh = ''
+    if kind == 'unique' and name:
+        if re.search(r'[\u3400-\u9fff]', name):
+            resolved_zh = sanitize_tw_unique_name(name)
+        else:
+            r = resolve_name(name, 'unique', allow_web=True)
+            resolved_zh = r.get('zh') or name
+    elif kind == 'gem' and name:
+        if re.search(r'[\u3400-\u9fff]', name):
+            resolved_zh = name
+        else:
+            r = resolve_name(name, 'gem', allow_web=True)
+            resolved_zh = r.get('zh') or name
+    elif kind == 'rare':
+        target_base = base or name
+        if target_base:
+            if re.search(r'[\u3400-\u9fff]', target_base):
+                resolved_zh = target_base
+            else:
+                r = resolve_name(target_base, 'base', allow_web=True)
+                resolved_zh = r.get('zh') or target_base
+
+    matched = match_mods(mod_lines)
+    return {
+        'kind': kind,
+        'itemName': resolved_zh,
+        'rawName': name,
+        'rawBase': base,
+        'mods': matched,
+    }
+
+
 def sanitize_tw_unique_name(name):
     name = name.strip()
     maps = get_official_item_map()
@@ -534,12 +722,12 @@ def sanitize_tw_unique_name(name):
 
 
 def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_filters=None, status_option='any'):
-    if not isinstance(name, str) or not name.strip() or len(name) > 140:
-        raise ValueError('物品名稱不正確')
     if not isinstance(league, str) or not league.strip() or len(league) > 100:
         raise ValueError('請填入正確的台服聯盟名稱')
     if kind not in ('unique', 'gem', 'rare'):
         raise ValueError('不支援的物品類別')
+    if kind in ('unique', 'gem') and (not isinstance(name, str) or not name.strip() or len(name) > 140):
+        raise ValueError('請輸入或選擇有效的物品名稱')
     if status_option not in ('any', 'online', 'securable'):
         status_option = 'any'
     query = {
@@ -604,7 +792,6 @@ def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_
 
 
 def build_direct_q_url(name, league, kind='unique', base='', stat_ids=None, stat_filters=None):
-    """Fallback URL using official ?q= parameter so browser opens search directly even if cloud IP is blocked."""
     query = build_trade_query(name, league, kind, base, stat_ids, stat_filters, status_option='any')
     q_json = json.dumps({'query': query, 'sort': {'price': 'asc'}}, ensure_ascii=False, separators=(',', ':'))
     return (
@@ -641,7 +828,7 @@ def execute_trade_search(name, league, kind='unique', base='', stat_ids=None, st
         if 'Unknown item name' in detail:
             tried_name = query.get('name') or query.get('type') or name
             raise ValueError(
-                f'台服市集無法辨識物品名稱「{tried_name}」（請點該裝備右側「修正」核對台服市集正確譯名）'
+                f'台服市集無法辨識物品名稱「{tried_name}」（請確認輸入的是台服官方繁體中文名稱）'
             )
         raise ValueError(f'台服交易網站拒絕搜尋（HTTP {e.code}）：{detail[:250]}')
     except (urllib.error.URLError, TimeoutError) as e:
@@ -736,7 +923,7 @@ def fetch_trade_listings(item_ids, search_id):
     return out
 
 
-# --- 多人隔離 10 分鐘自動監控系統（依使用者 Sync ID 隔離資料，確保隱私安全） ---
+# --- 多人隔離 10 分鐘自動監控系統 ---
 MONITOR_FILE = DATA_DIR / 'monitors_multi.json'
 LEGACY_MONITOR_FILE = ROOT / 'monitors.json'
 MONITOR_LOCK = threading.Lock()
@@ -774,7 +961,6 @@ def load_monitors():
                 return
         except Exception:
             pass
-    # Migrate legacy single-user file if present
     if LEGACY_MONITOR_FILE.exists():
         try:
             old = json.loads(LEGACY_MONITOR_FILE.read_text(encoding='utf-8'))
@@ -1028,6 +1214,7 @@ def get_official_item_map(refresh=False):
             'tw_unique_names': set(),
             'tw_base_names': set(),
             'tw_gem_names': set(),
+            'search_items': [],
         }
         en_data = fetch_raw_items('en', refresh=refresh)
         tw_data = fetch_raw_items('tw', refresh=refresh)
@@ -1115,8 +1302,44 @@ def get_official_item_map(refresh=False):
                             for en_e, tw_e in zip(en_list, tw_list):
                                 maps['unique'][norm_item_key(en_e['name'])] = tw_e['name']
 
+        # Build unified search index (kind, zh, en)
+        rev_unique = {tw_v: en_k for en_k, tw_v in maps['unique'].items()}
+        rev_base = {tw_v: en_k for en_k, tw_v in maps['base'].items()}
+        rev_gem = {tw_v: en_k for en_k, tw_v in maps['gem'].items()}
+        s_items = []
+        for zh_n in sorted(maps['tw_unique_names']):
+            s_items.append({'kind': 'unique', 'zh': zh_n, 'en': rev_unique.get(zh_n, '')})
+        for zh_b in sorted(maps['tw_base_names']):
+            s_items.append({'kind': 'rare', 'zh': zh_b, 'en': rev_base.get(zh_b, '')})
+        for zh_g in sorted(maps['tw_gem_names']):
+            s_items.append({'kind': 'gem', 'zh': zh_g, 'en': rev_gem.get(zh_g, '')})
+        maps['search_items'] = s_items
+
         ITEM_CACHE.update(maps=maps, expires=now + 86400)
         return maps
+
+
+def search_official_items(query_str, kind_filter='all', limit=25):
+    q = str(query_str or '').strip().lower()
+    if not q:
+        return []
+    maps = get_official_item_map()
+    s_items = maps.get('search_items', [])
+    tokens = [t for t in re.split(r'\s+', q) if t]
+    scored = []
+    for it in s_items:
+        if kind_filter and kind_filter != 'all' and it['kind'] != kind_filter:
+            continue
+        zh_low = it['zh'].lower()
+        en_low = it['en'].lower()
+        hay = zh_low + ' ' + en_low
+        if not all(t in hay for t in tokens):
+            continue
+        exact_boost = 0 if (q == zh_low or q == en_low) else 1
+        prefix_boost = 0 if (zh_low.startswith(q) or en_low.startswith(q)) else 1
+        scored.append((exact_boost, prefix_boost, len(it['zh']), it))
+    scored.sort(key=lambda x: (x[0], x[1], x[2]))
+    return [x[3] for x in scored[:limit]]
 
 
 VERIFIED_NAMES = {
@@ -1314,8 +1537,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         route = parsed.path
+        qs = urllib.parse.parse_qs(parsed.query)
         if route == '/health':
-            self.reply({'ok': True, 'version': '2.25-web'})
+            self.reply({'ok': True, 'version': '2.27-web'})
             return
         if route == '/api/catalogue-status':
             try:
@@ -1323,6 +1547,19 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply({'ok': True, 'meta': meta})
             except Exception as e:
                 self.reply({'ok': False, 'error': str(e)})
+            return
+        if route == '/api/items/search':
+            q = (qs.get('q') or [''])[0]
+            k = (qs.get('kind') or ['all'])[0]
+            self.reply({'ok': True, 'items': search_official_items(q, k)})
+            return
+        if route == '/api/stats/search':
+            q = (qs.get('q') or [''])[0]
+            k = (qs.get('kind') or ['all'])[0]
+            try:
+                self.reply({'ok': True, 'stats': search_trade_stats(q, k)})
+            except Exception as e:
+                self.reply({'ok': False, 'error': str(e)}, 400)
             return
         if route == '/api/monitors':
             cid = self.get_client_id()
@@ -1351,7 +1588,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         route = parsed.path
         allowed_paths = (
-            '/api/parse', '/api/poedb', '/api/trade-link', '/api/names',
+            '/api/parse', '/api/parse-item-text', '/api/poedb', '/api/trade-link', '/api/names',
             '/api/match-mods', '/api/catalogue-import', '/api/catalogue-refresh',
             '/api/monitors/add', '/api/monitors/toggle', '/api/monitors/delete',
             '/api/monitors/check', '/api/monitors/settings', '/api/monitors/test-discord',
@@ -1377,6 +1614,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             elif route == '/api/parse':
                 result = parse_pob(data.get('code', ''), data.get('source', ''))
+            elif route == '/api/parse-item-text':
+                self.reply({'ok': True, 'parsed': parse_pasted_item_text(data.get('text', ''))})
+                return
             elif route == '/api/poedb':
                 result = fetch_poedb(data.get('url', ''))
             elif route == '/api/match-mods':
@@ -1386,13 +1626,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply({'ok': True, 'names': resolve_batch(data.get('entries', []), data.get('seedOnly', False))})
                 return
             elif route == '/api/trade-link':
+                q_name = str(data.get('name', '')).strip()
+                kind = data.get('kind', 'unique')
+                base = str(data.get('base', '')).strip()
+                if kind in ('unique', 'gem') and q_name and not re.search(r'[\u3400-\u9fff]', q_name):
+                    r = resolve_name(q_name, kind, allow_web=True)
+                    if r.get('zh'):
+                        q_name = r['zh']
+                if kind == 'rare' and base and not re.search(r'[\u3400-\u9fff]', base):
+                    r = resolve_name(base, 'base', allow_web=True)
+                    if r.get('zh'):
+                        base = r['zh']
                 self.reply({
                     'ok': True,
                     'url': trade_link(
-                        data.get('name', ''),
+                        q_name,
                         data.get('league', ''),
-                        data.get('kind', 'unique'),
-                        data.get('base', ''),
+                        kind,
+                        base,
                         data.get('statIds', []),
                         data.get('statFilters'),
                     ),
@@ -1408,9 +1659,22 @@ class Handler(BaseHTTPRequestHandler):
                 stat_filters = data.get('statFilters') or []
                 cond_summary = str(data.get('condSummary', '')).strip()
                 status_opt = data.get('statusOption', 'online')
+                if kind in ('unique', 'gem') and q_name and not re.search(r'[\u3400-\u9fff]', q_name):
+                    r = resolve_name(q_name, kind, allow_web=True)
+                    if r.get('zh'):
+                        q_name = r['zh']
+                        d_name = r['zh']
+                if kind == 'rare' and base and not re.search(r'[\u3400-\u9fff]', base):
+                    r = resolve_name(base, 'base', allow_web=True)
+                    if r.get('zh'):
+                        base = r['zh']
+                        if not d_name or d_name == data.get('base'):
+                            d_name = r['zh']
                 if kind == 'unique':
                     q_name = sanitize_tw_unique_name(q_name)
                     d_name = sanitize_tw_unique_name(d_name)
+                if kind == 'rare' and not d_name:
+                    d_name = base or '自訂稀有裝備'
                 build_trade_query(q_name, league, kind, base, stat_ids, stat_filters, status_option=status_opt)
                 mid = uuid.uuid4().hex[:10]
                 now_ts = time.time()
@@ -1545,7 +1809,7 @@ if __name__ == '__main__':
     host = '0.0.0.0'
     port = int(os.environ.get('PORT', '8766'))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'POE 裝備統計 V2.25 (支援公開網站多人隔離部署): http://{host}:{port}/')
+    print(f'POE 裝備統計 V2.27 (傳奇詞綴篩選 + 手動新增監控分頁): http://{host}:{port}/')
     is_cloud = any(os.environ.get(k) for k in ('PORT', 'RENDER', 'ZEABUR', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME'))
     if not is_cloud:
         threading.Timer(0.8, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()
