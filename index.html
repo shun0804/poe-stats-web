@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>POE 裝備統計助手 V2.31</title>
+<title>POE 裝備統計助手 V2.32</title>
 <style>
 :root{
   --nav-bg:#2b3643;
@@ -76,6 +76,10 @@ a:hover{text-decoration:underline}
 .top-action:hover{background:rgba(255,255,255,.12);color:#fff}
 .top-action.danger-link:hover{background:rgba(245,108,108,.22);color:#fca5a5}
 .top-divider{width:1px;height:16px;background:rgba(255,255,255,.2);margin:0 2px}
+.nav-pill-count{
+  font-size:12px;padding:1px 7px;border-radius:10px;
+  background:rgba(59,179,138,.28);color:#a7f3d0;font-weight:700;
+}
 
 /* App Shell */
 .app-shell{display:flex;min-height:calc(100vh - 56px)}
@@ -272,6 +276,11 @@ tbody tr.item-row.expanded td{border-bottom:0}
   font-size:12px;font-weight:700;background:#f3e8ff;color:#7e22ce;border:1px solid #e9d5ff;
   vertical-align:middle;
 }
+.shared-override-tag{
+  display:inline-block;margin-left:8px;padding:1px 7px;border-radius:4px;
+  font-size:12px;font-weight:700;background:#e6f7f1;color:#1f8a65;border:1px solid #a7f3d0;
+  vertical-align:middle;
+}
 .status-pill{
   display:inline-block;padding:2px 10px;border-radius:4px;
   font-size:13px;font-weight:600;color:#fff;line-height:1.5;
@@ -308,11 +317,12 @@ tr.mod-drawer-row td{
 }
 .mod-drawer-info{font-size:14px;color:var(--text-regular);font-weight:500}
 .mod-drawer-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.modrow-wrap{border-bottom:1px solid #f0f2f5}
+.modrow-wrap:last-child{border-bottom:0}
 .modrow{
-  display:flex;align-items:center;gap:14px;
-  padding:11px 10px;border-bottom:1px solid #f0f2f5;
+  display:flex;align-items:center;gap:12px;
+  padding:11px 10px;
 }
-.modrow:last-child{border-bottom:0}
 .modrow:hover{background:#f8fafc}
 .modrow .modcheck{width:20px;height:20px;accent-color:var(--mint);cursor:pointer;margin:0;flex:none}
 .modrow .modlabel{flex:1;font-size:16px;color:var(--text-main);cursor:pointer}
@@ -324,12 +334,40 @@ tr.mod-drawer-row td{
 .mod-min-box input{
   width:105px;height:34px;padding:4px 10px;font-size:14px;text-align:center;
 }
-.modrow .modchoice{width:min(360px,45%);flex:none}
 .modbottom{
   display:flex;align-items:center;justify-content:space-between;
   gap:14px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid #ebeef5;
 }
 .modbottom-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* Inline Shared Modifier Override Editor */
+.mod-ov-editor{
+  margin:0 10px 12px 42px;
+  padding:14px 16px;
+  background:#f8fafc;
+  border:1px solid #b3d8ff;
+  border-left:3px solid var(--mint);
+  border-radius:6px;
+}
+.mod-ov-head{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  margin-bottom:10px;font-size:14px;color:var(--text-regular);
+}
+.mod-ov-search{
+  display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+}
+.mod-ov-search input{height:35px;font-size:14px}
+.mod-ov-search select{height:35px;font-size:14px}
+.mod-ov-list{
+  margin-top:8px;max-height:220px;overflow-y:auto;
+  border:1px solid #dcdfe6;border-radius:5px;background:#fff;
+}
+.mod-ov-item{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 12px;border-bottom:1px solid #f0f2f5;font-size:14px;
+}
+.mod-ov-item:last-child{border-bottom:0}
+.mod-ov-item:hover{background:#ecf5ff}
 
 /* Manual Builder Page */
 .manual-grid-top{
@@ -404,6 +442,34 @@ tr.mod-drawer-row td{
   color:#2b7de9;font-size:13px;padding:2px 9px;border-radius:4px;font-weight:500;
 }
 
+/* Modal Overlay for Shared Modifier Dictionary */
+.modal-backdrop{
+  position:fixed;inset:0;z-index:200;
+  background:rgba(15,23,42,.52);
+  display:flex;align-items:center;justify-content:center;
+  padding:20px;
+}
+.modal-backdrop[hidden]{display:none}
+.modal-card{
+  background:#fff;border-radius:8px;
+  width:min(860px,100%);max-height:86vh;
+  display:flex;flex-direction:column;
+  box-shadow:0 12px 36px rgba(0,0,0,.22);
+  overflow:hidden;
+}
+.modal-head{
+  padding:16px 22px;background:#2b3643;color:#fff;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+}
+.modal-head h3{margin:0;font-size:18px}
+.modal-body{
+  padding:18px 22px;overflow-y:auto;flex:1;
+}
+.modal-foot{
+  padding:12px 22px;background:#f8fafc;border-top:1px solid #ebeef5;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+}
+
 @media(max-width:1024px){
   .manual-grid-top{grid-template-columns:1fr 1fr}
 }
@@ -420,7 +486,7 @@ tr.mod-drawer-row td{
   .manual-grid-top{grid-template-columns:1fr}
   .modrow{flex-wrap:wrap}
   .mod-min-box{margin-left:34px}
-  .modrow .modchoice{width:100%;margin-left:34px}
+  .mod-ov-editor{margin-left:10px}
 }
 </style>
 </head>
@@ -433,10 +499,12 @@ tr.mod-drawer-row td{
     <div class="brand">
       <span class="brand-logo">P</span>
       <span>POE 裝備統計</span>
-      <span class="ver-pill">V2.31</span>
+      <span class="ver-pill">V2.32</span>
     </div>
   </div>
   <div class="topbar-right">
+    <button class="top-action" id="openOverridesModal">📚 共用詞綴庫 <span class="nav-pill-count" id="sharedOverrideCount">0</span></button>
+    <span class="top-divider"></span>
     <button class="top-action" id="export">⬇ 匯出 JSON</button>
     <span class="top-divider"></span>
     <button class="top-action" id="importBtn">⬆ 匯入 JSON</button>
@@ -805,6 +873,45 @@ tr.mod-drawer-row td{
   </main>
 </div>
 
+<!-- Shared Modifier Dictionary Modal -->
+<div class="modal-backdrop" id="overridesModal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>📚 全站玩家共用詞綴對照庫</h3>
+      <button class="btn btn-default btn-xs" id="closeOverridesModal">關閉 ✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint-text" style="margin:0 0 12px;font-size:14px">
+        任何玩家在「詞綴篩選」點擊<strong>「修正」</strong>並套用後，都會儲存於此並立即對所有玩家生效。若使用 Render 免費版，建議累積修改後點擊下方<strong>「匯出共用詞綴庫」</strong>並上傳至 GitHub 專案根目錄即可永久保留。
+      </p>
+      <div style="margin-bottom:12px">
+        <input type="text" id="overrideFilterInput" placeholder="搜尋已儲存的英文或中文詞綴…">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>原始英文詞綴</th>
+              <th>全站共用中文與官方 ID</th>
+              <th style="width:155px">更新時間</th>
+              <th style="width:85px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="overridesTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="summary-text" id="overridesModalSummary">共 0 條共用修正</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sky-outline btn-sm" id="exportOverridesBtn">⬇ 匯出共用詞綴庫 (JSON)</button>
+        <button class="btn btn-default btn-sm" id="importOverridesBtn">⬆ 匯入共用詞綴庫</button>
+        <input hidden id="importOverridesFile" type="file" accept="application/json,.json">
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -825,12 +932,15 @@ let lastListTab='gear';
 let rows=[];
 let jewelDetails={};
 let expandedDetailKey=null;
+let editingModIdx=null;
+let ovSearchResults={};
 let modLoading={};
 let modErrors={};
 let translations={};try{translations=JSON.parse(localStorage.getItem('poeStatsV22Translations')||'{}')}catch{}
 let soundEnabled=localStorage.getItem('poeSoundEnabled')!=='false';
 let monitorData={monitors:[],alerts:[],discordWebhook:''};
 let restoreAttempted={};
+let sharedOverridesData={count:0,overrides:[],raw:{}};
 
 // Manual Builder State
 let manualSelectedStats=[];
@@ -877,6 +987,80 @@ async function api(path,payload){
   if(!d.ok)throw Error(d.error||'處理失敗');
   return d;
 }
+
+/* Shared Modifier Overrides Helpers */
+async function loadSharedOverrides(){
+  try{
+    const res=await fetch('/api/mod-overrides');
+    const d=await res.json();
+    if(!d.ok)return;
+    sharedOverridesData=d;
+    $('sharedOverrideCount').textContent=d.count??0;
+    if(!$('overridesModal').hidden)renderOverridesModal();
+  }catch(e){}
+}
+
+function renderOverridesModal(){
+  const term=($('overrideFilterInput').value||'').trim().toLowerCase();
+  const list=(sharedOverridesData.overrides||[]).filter(o=>{
+    if(!term)return true;
+    return `${o.exampleMod||''} ${o.zh||''} ${o.en||''} ${o.id||''}`.toLowerCase().includes(term);
+  });
+  $('overridesModalSummary').textContent=`目前共 ${sharedOverridesData.count??0} 條全站共用修正`;
+  $('overridesTableBody').innerHTML=list.map(o=>`<tr>
+    <td style="font-size:14px;color:var(--text-main)">${esc(o.exampleMod||o.key)}</td>
+    <td>
+      <div style="font-weight:700;color:var(--mint)">${esc(o.zh)}</div>
+      <div style="font-size:12px;color:var(--text-muted)">${esc(o.id)}${o.option!==null&&o.option!==undefined?` (option: ${o.option})`:''}</div>
+    </td>
+    <td style="font-size:13px;color:var(--text-muted)">${esc(o.updatedAt||'')}</td>
+    <td><button class="btn btn-danger-outline btn-xs" data-del-ov="${esc(o.key)}">刪除</button></td>
+  </tr>`).join('')||'<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text-muted)">尚無共用詞綴修正紀錄</td></tr>';
+
+  $('overridesTableBody').querySelectorAll('[data-del-ov]').forEach(btn=>btn.onclick=async()=>{
+    if(!confirm('確定刪除此共用詞綴修正？刪除後將恢復為系統自動比對。'))return;
+    try{
+      await api('/api/mod-overrides/delete',{key:btn.dataset.delOv});
+      await loadSharedOverrides();
+      jewelDetails={};
+      if(expandedDetailKey)renderLinks();
+      msg('已刪除該共用詞綴修正');
+    }catch(e){msg(e.message,true)}
+  });
+}
+
+$('openOverridesModal').onclick=async()=>{
+  $('overridesModal').hidden=false;
+  await loadSharedOverrides();
+  renderOverridesModal();
+};
+$('closeOverridesModal').onclick=()=>{$('overridesModal').hidden=true};
+$('overridesModal').onclick=e=>{if(e.target===$('overridesModal'))$('overridesModal').hidden=true};
+$('overrideFilterInput').oninput=renderOverridesModal;
+
+$('exportOverridesBtn').onclick=async()=>{
+  await loadSharedOverrides();
+  const blob=new Blob([JSON.stringify({version:1,overrides:sharedOverridesData.raw||{}},null,2)],{type:'application/json'});
+  const u=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=u;a.download='custom_mod_overrides.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(u),2000);
+  msg('已匯出 custom_mod_overrides.json（上傳至 GitHub 專案根目錄即可永久保留）');
+};
+
+$('importOverridesBtn').onclick=()=>$('importOverridesFile').click();
+$('importOverridesFile').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{
+    const parsed=JSON.parse(await f.text());
+    const res=await api('/api/mod-overrides/import',{data:parsed});
+    await loadSharedOverrides();
+    jewelDetails={};
+    if(expandedDetailKey)renderLinks();
+    msg(`已匯入並合併 ${res.imported} 條共用詞綴修正（目前共 ${res.count} 條）`);
+  }catch(err){msg(err.message,true)}
+  e.target.value='';
+};
 
 /* Browser Auto-Backup & Auto-Restore for Cloud Sleep Recovery */
 function saveMonitorBackup(d){
@@ -993,6 +1177,7 @@ function switchView(view){
   if(expandedDetailKey){
     delete jewelDetails[expandedDetailKey];
     expandedDetailKey=null;
+    editingModIdx=null;
   }
 
   document.querySelectorAll('[data-view]').forEach(el=>{
@@ -1069,7 +1254,7 @@ $('xmlFile').onchange=async e=>{
 
 $('clear').onclick=()=>{
   if(confirm('確定清空所有角色樣本？')){
-    chars=[];jewelDetails={};expandedDetailKey=null;save();switchView('import');msg('已清空所有樣本');
+    chars=[];jewelDetails={};expandedDetailKey=null;editingModIdx=null;save();switchView('import');msg('已清空所有樣本');
   }
 };
 
@@ -1145,7 +1330,6 @@ function buildSearchPayload(x){
   }
   if(!league)throw Error('請填入台服聯盟名稱');
   const dKey=detailKey(x);
-  // 只有在詞綴篩選目前處於「展開」狀態時，才一併帶入勾選的詞綴；收合後則直接搜尋名稱
   const isDrawerOpen=(expandedDetailKey===dKey);
   const detail=isDrawerOpen?jewelDetails[dKey]:null;
   const selected=((tab==='gear'||tab==='jewels'||tab==='rare')&&detail)?detail.filter(z=>z.checked&&z.id):[];
@@ -1187,6 +1371,58 @@ function buildSearchPayload(x){
   };
 }
 
+function buildModOverrideEditor(dKey, mi, m){
+  const searchKey=dKey+'|'+mi;
+  const cached=ovSearchResults[searchKey];
+  const fallbackList=(m.suggestions||[]).filter(z=>z.zh).map(c=>({
+    id:c.id,
+    option:c.option??null,
+    zh:c.zh,
+    en:c.text||'',
+    kind:String(c.id).split('.')[0],
+    kindLabel:({explicit:'外顯',implicit:'固定',fractured:'破裂',crafted:'工藝',enchant:'附魔',pseudo:'總和'}[String(c.id).split('.')[0]]||'詞綴'),
+  }));
+  const list=cached!==undefined?cached:fallbackList;
+
+  const listHtml=list.length
+    ?`<div class="mod-ov-list">${list.map((c,ci)=>`<div class="mod-ov-item">
+        <div style="flex:1;min-width:200px">
+          <div><span class="affix-badge affix-${esc(c.kind||'explicit')}">${esc(c.kindLabel||'外顯')}</span><strong style="color:var(--text-main)">${esc(c.zh)}</strong></div>
+          ${c.en?`<div style="font-size:12px;color:var(--text-muted)">${esc(c.en)}</div>`:''}
+        </div>
+        <button type="button" class="btn btn-mint btn-xs" data-ov-apply="${esc(dKey)}" data-ov-mi="${mi}" data-ov-ci="${ci}">套用並共用</button>
+      </div>`).join('')}</div>`
+    :`<div style="font-size:13px;color:var(--text-muted);margin-top:8px">請輸入中文或英文關鍵字搜尋官方詞綴庫（例如：最大生命、附加、暴擊、抗性）</div>`;
+
+  return `<div class="mod-ov-editor">
+    <div class="mod-ov-head">
+      <span><strong>修改詞綴對應（全站玩家共用）：</strong><code style="background:#fff;padding:2px 6px;border-radius:3px;border:1px solid #dcdfe6">${esc(m.mod)}</code></span>
+      <div style="display:flex;gap:6px">
+        ${m.override?`<button type="button" class="btn btn-danger-outline btn-xs" data-ov-revert="${esc(dKey)}" data-ov-mi="${mi}">還原系統預設</button>`:''}
+        <button type="button" class="btn btn-default btn-xs" data-ov-cancel="1">取消</button>
+      </div>
+    </div>
+    <div class="mod-ov-search">
+      <div style="width:140px;flex:none">
+        <select data-ov-kind="${esc(dKey)}" data-ov-mi="${mi}">
+          <option value="all">全部詞綴類型</option>
+          <option value="explicit">外顯詞綴</option>
+          <option value="implicit">固定詞綴</option>
+          <option value="fractured">破裂詞綴</option>
+          <option value="crafted">工藝詞綴</option>
+          <option value="enchant">附魔</option>
+          <option value="pseudo">偽造總和</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <input type="text" data-ov-query="${esc(dKey)}" data-ov-mi="${mi}" placeholder="輸入中文或英文關鍵字搜尋官方詞綴…">
+      </div>
+      <button type="button" class="btn btn-sky-solid btn-xs" data-ov-search-btn="${esc(dKey)}" data-ov-mi="${mi}">搜尋</button>
+    </div>
+    ${listHtml}
+  </div>`;
+}
+
 function buildInlineDrawer(x, i, dKey){
   const loading=!!modLoading[dKey];
   const err=modErrors[dKey];
@@ -1211,7 +1447,7 @@ function buildInlineDrawer(x, i, dKey){
   }else{
     bodyHtml=arr.map((m,mi)=>{
       const name=m.zh?esc(m.zh):esc(m.mod);
-      const candidates=(m.suggestions||[]).filter(z=>z.zh);
+      const overrideTag=m.override?`<span class="shared-override-tag">共用修正</span>`:'';
       const rollHint=(m.rolls&&m.rolls.length)?m.rolls[0]:null;
       const hasOpt=(m.option!==null&&m.option!==undefined);
       const minBox=(m.id&&!hasOpt)?`<div class="mod-min-box">
@@ -1220,14 +1456,19 @@ function buildInlineDrawer(x, i, dKey){
         ${rollHint!==null?`<button type="button" class="btn btn-default btn-xs" data-fill-roll="${esc(dKey)}" data-fill-mi="${mi}" data-roll="${rollHint}" title="帶入 PoB 數值">帶入 ${rollHint}</button>`:''}
       </div>`:'';
       const subHint=!m.id
-        ?(m.zh?'<small>以上為相近中文翻譯參考，請在右側進階設定選定對應交易詞綴後勾選</small>':'<small>尚未找到可用的交易詞綴，請在進階設定中確認</small>')
+        ?(m.zh?'<small>以上為相近中文參考，請點右側「修正」選定官方詞綴後即可全站共用</small>':'<small>尚未找到對應詞綴，請點右側「修正」搜尋官方詞綴庫指定</small>')
         :'';
-      const advanced=(!m.id)?`<details class="modchoice"><summary style="cursor:pointer;color:var(--sky);font-size:14px">進階設定</summary>${candidates.length?`<select data-choice-key="${esc(dKey)}" data-choice-mi="${mi}" style="margin-top:6px"><option value="" ${m.id?'':'selected'}>請選擇中文詞綴</option>${candidates.map(c=>`<option value="${esc(c.id)}" ${m.id===c.id?'selected':''}>${esc(c.zh)}（${c.score}%）</option>`).join('')}</select>`:''}<small style="display:block;color:var(--text-muted);margin-top:4px">${esc(m.mod)}</small></details>`:'';
-      return `<div class="modrow">
-        <input class="modcheck" type="checkbox" id="modcheck-${i}-${mi}" data-mod-key="${esc(dKey)}" data-mi="${mi}" ${m.checked?'checked':''} ${m.id?'':'disabled'}>
-        <label class="modlabel ${m.id?'':'pending'}" for="modcheck-${i}-${mi}">${name}${subHint}</label>
-        ${minBox}
-        ${advanced}
+      const isEditing=(editingModIdx===mi);
+      const editBtn=`<button type="button" class="btn ${isEditing?'btn-sky-solid':'btn-default'} btn-xs" data-mod-edit="${esc(dKey)}" data-mi="${mi}">${isEditing?'收合修正':'修正'}</button>`;
+      const editorHtml=isEditing?buildModOverrideEditor(dKey,mi,m):'';
+      return `<div class="modrow-wrap">
+        <div class="modrow">
+          <input class="modcheck" type="checkbox" id="modcheck-${i}-${mi}" data-mod-key="${esc(dKey)}" data-mi="${mi}" ${m.checked?'checked':''} ${m.id?'':'disabled'}>
+          <label class="modlabel ${m.id?'':'pending'}" for="modcheck-${i}-${mi}">${name}${overrideTag}${subHint}</label>
+          ${minBox}
+          ${editBtn}
+        </div>
+        ${editorHtml}
       </div>`;
     }).join('');
   }
@@ -1310,11 +1551,38 @@ async function addItemMonitor(rowIndex, triggerBtn){
   }
 }
 
+async function fetchMatchedModsForItem(x, dKey){
+  const variants=x.variants||[];
+  const all=[...new Set(variants.flatMap(v=>v.mods||[]))];
+  const result=await api('/api/match-mods',{mods:all});
+  jewelDetails[dKey]=result.mods.map(m=>{
+    const exact=(m.suggestions||[]).filter(c=>c.score===100&&c.zh);
+    const ranked=exact.slice().sort((a,b)=>{
+      const priority=id=>({explicit:0,fractured:1,crafted:2,implicit:3,enchant:4,pseudo:5}[String(id).split('.')[0]]??9);
+      return priority(a.id)-priority(b.id)||String(a.id).localeCompare(String(b.id));
+    });
+    const auto=(!m.id&&ranked.length)?ranked[0]:null;
+    const chosenId=m.id||auto?.id||null;
+    const chosenZh=m.id?m.zh:(auto?.zh||m.zh||'');
+    return {
+      ...m,
+      id:chosenId,
+      option:m.option??null,
+      zh:chosenZh,
+      status:auto?'matched':m.status,
+      translation_status:auto?'verified':m.translation_status,
+      checked:(m.status==='matched'||!!auto),
+      minValue:'',
+    };
+  });
+}
+
 async function toggleInlineMods(x){
   const dKey=detailKey(x);
   if(expandedDetailKey===dKey){
     delete jewelDetails[dKey];
     expandedDetailKey=null;
+    editingModIdx=null;
     renderLinks();
     return;
   }
@@ -1325,41 +1593,49 @@ async function toggleInlineMods(x){
     delete jewelDetails[expandedDetailKey];
   }
   expandedDetailKey=dKey;
-
-  const all=[...new Set(variants.flatMap(v=>v.mods||[]))];
+  editingModIdx=null;
 
   modLoading[dKey]=true;
   delete modErrors[dKey];
   renderLinks();
 
   try{
-    const result=await api('/api/match-mods',{mods:all});
-    jewelDetails[dKey]=result.mods.map(m=>{
-      const exact=(m.suggestions||[]).filter(c=>c.score===100&&c.zh);
-      const ranked=exact.slice().sort((a,b)=>{
-        const priority=id=>({explicit:0,fractured:1,crafted:2,implicit:3,enchant:4,pseudo:5}[String(id).split('.')[0]]??9);
-        return priority(a.id)-priority(b.id)||String(a.id).localeCompare(String(b.id));
-      });
-      const auto=(!m.id&&ranked.length)?ranked[0]:null;
-      const chosenId=m.id||auto?.id||null;
-      const chosenZh=m.id?m.zh:(auto?.zh||m.zh||'');
-      return {
-        ...m,
-        id:chosenId,
-        option:m.option??null,
-        zh:chosenZh,
-        status:auto?'matched':m.status,
-        translation_status:auto?'verified':m.translation_status,
-        checked:(m.status==='matched'||!!auto),
-        minValue:'',
-      };
-    });
+    await fetchMatchedModsForItem(x, dKey);
   }catch(e){
     modErrors[dKey]=e.message;
   }finally{
     modLoading[dKey]=false;
     if(activeView!=='import'&&activeView!=='monitor'&&activeView!=='manual')renderLinks();
   }
+}
+
+async function executeInlineModOvSearch(dKey, mi){
+  const qInp=document.querySelector(`[data-ov-query="${CSS.escape(dKey)}"][data-ov-mi="${mi}"]`);
+  const kSel=document.querySelector(`[data-ov-kind="${CSS.escape(dKey)}"][data-ov-mi="${mi}"]`);
+  const q=(qInp?.value||'').trim();
+  const kind=kSel?.value||'all';
+  const searchKey=dKey+'|'+mi;
+  if(!q){
+    delete ovSearchResults[searchKey];
+    renderLinks();
+    return;
+  }
+  try{
+    const res=await fetch(`/api/stats/search?q=${encodeURIComponent(q)}&kind=${encodeURIComponent(kind)}`);
+    const d=await res.json();
+    if(!d.ok)throw Error(d.error||'搜尋失敗');
+    ovSearchResults[searchKey]=d.stats||[];
+    renderLinks();
+    // Restore focus and cursor in search input after re-render
+    const restoredInp=document.querySelector(`[data-ov-query="${CSS.escape(dKey)}"][data-ov-mi="${mi}"]`);
+    const restoredSel=document.querySelector(`[data-ov-kind="${CSS.escape(dKey)}"][data-ov-mi="${mi}"]`);
+    if(restoredSel)restoredSel.value=kind;
+    if(restoredInp){
+      restoredInp.value=q;
+      restoredInp.focus();
+      restoredInp.setSelectionRange(q.length,q.length);
+    }
+  }catch(e){msg(e.message,true)}
 }
 
 function renderLinks(){
@@ -1422,6 +1698,7 @@ function renderLinks(){
     if(expandedDetailKey){
       delete jewelDetails[expandedDetailKey];
       expandedDetailKey=null;
+      editingModIdx=null;
     }
     renderLinks();
   });
@@ -1467,16 +1744,110 @@ function renderLinks(){
     }
   });
 
-  document.querySelectorAll('[data-choice-key]').forEach(b=>b.onchange=()=>{
-    const arr=jewelDetails[b.dataset.choiceKey]||[];
-    const m=arr[+b.dataset.choiceMi];
-    if(!m)return;
-    const pick=(m.suggestions||[]).find(c=>c.id===b.value);
-    m.id=pick?.id||null;
-    m.zh=pick?.zh||m.zh;
-    m.checked=!!pick;
-    m.translation_status=pick?'verified':'candidate';
+  // Inline Shared Modifier Override Editor Events
+  document.querySelectorAll('[data-mod-edit]').forEach(btn=>btn.onclick=()=>{
+    const mi=+btn.dataset.mi;
+    editingModIdx=(editingModIdx===mi)?null:mi;
     renderLinks();
+    if(editingModIdx!==null){
+      const inp=document.querySelector(`[data-ov-query="${CSS.escape(btn.dataset.modEdit)}"][data-ov-mi="${mi}"]`);
+      if(inp)inp.focus();
+    }
+  });
+
+  document.querySelectorAll('[data-ov-cancel]').forEach(btn=>btn.onclick=()=>{
+    editingModIdx=null;
+    renderLinks();
+  });
+
+  let ovTimer=null;
+  document.querySelectorAll('[data-ov-query]').forEach(inp=>{
+    inp.oninput=()=>{
+      clearTimeout(ovTimer);
+      ovTimer=setTimeout(()=>executeInlineModOvSearch(inp.dataset.ovQuery,+inp.dataset.ovMi),260);
+    };
+    inp.onkeydown=e=>{
+      if(e.key==='Enter'){
+        e.preventDefault();
+        clearTimeout(ovTimer);
+        executeInlineModOvSearch(inp.dataset.ovQuery,+inp.dataset.ovMi);
+      }
+    };
+  });
+
+  document.querySelectorAll('[data-ov-kind]').forEach(sel=>sel.onchange=()=>{
+    executeInlineModOvSearch(sel.dataset.ovKind,+sel.dataset.ovMi);
+  });
+
+  document.querySelectorAll('[data-ov-search-btn]').forEach(btn=>btn.onclick=()=>{
+    executeInlineModOvSearch(btn.dataset.ovSearchBtn,+btn.dataset.ovMi);
+  });
+
+  document.querySelectorAll('[data-ov-apply]').forEach(btn=>btn.onclick=async()=>{
+    const dKey=btn.dataset.ovApply;
+    const mi=+btn.dataset.ovMi;
+    const ci=+btn.dataset.ovCi;
+    const arr=jewelDetails[dKey]||[];
+    const m=arr[mi];
+    if(!m)return;
+
+    const searchKey=dKey+'|'+mi;
+    const fallbackList=(m.suggestions||[]).filter(z=>z.zh).map(c=>({
+      id:c.id,
+      option:c.option??null,
+      zh:c.zh,
+      en:c.text||'',
+    }));
+    const list=ovSearchResults[searchKey]!==undefined?ovSearchResults[searchKey]:fallbackList;
+    const chosen=list[ci];
+    if(!chosen)return;
+
+    btn.disabled=true;
+    try{
+      const res=await api('/api/mod-overrides/save',{
+        mod:m.mod,
+        id:chosen.id,
+        option:chosen.option??null,
+        zh:chosen.zh,
+        en:chosen.en||'',
+      });
+      m.id=chosen.id;
+      m.option=chosen.option??null;
+      m.zh=chosen.zh;
+      m.checked=true;
+      m.override=true;
+      m.translation_status='override';
+      editingModIdx=null;
+      $('sharedOverrideCount').textContent=res.count??0;
+      renderLinks();
+      msg(`已儲存「${chosen.zh}」並同步至全站共用詞綴庫，所有玩家之後都會自動套用！`);
+    }catch(e){
+      msg(e.message,true);
+      btn.disabled=false;
+    }
+  });
+
+  document.querySelectorAll('[data-ov-revert]').forEach(btn=>btn.onclick=async()=>{
+    const dKey=btn.dataset.ovRevert;
+    const mi=+btn.dataset.ovMi;
+    const arr=jewelDetails[dKey]||[];
+    const m=arr[mi];
+    if(!m)return;
+    btn.disabled=true;
+    try{
+      const res=await api('/api/mod-overrides/delete',{key:m.overrideKey||m.mod});
+      $('sharedOverrideCount').textContent=res.count??0;
+      editingModIdx=null;
+      const itemObj=rows.find(r=>detailKey(r)===dKey);
+      if(itemObj){
+        await fetchMatchedModsForItem(itemObj,dKey);
+      }
+      renderLinks();
+      msg('已還原為系統預設比對');
+    }catch(e){
+      msg(e.message,true);
+      btn.disabled=false;
+    }
   });
 
   document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{
@@ -1580,7 +1951,7 @@ async function runManualStatSearch(){
       return;
     }
     box.innerHTML=manualStatSearchCache.map((st,idx)=>{
-      const already=manualSelectedStats.some(s=>s.id===st.id);
+      const already=manualSelectedStats.some(s=>s.id===st.id&&s.option===st.option);
       return `<div class="stat-res-row">
         <div style="flex:1;min-width:220px">
           <div><span class="affix-badge affix-${esc(st.kind)}">${esc(st.kindLabel)}</span><strong style="color:var(--text-main);font-size:15px">${esc(st.zh)}</strong></div>
@@ -1594,7 +1965,7 @@ async function runManualStatSearch(){
         const st=manualStatSearchCache[+btn.dataset.addStat];
         if(!st)return;
         if(manualSelectedStats.length>=12){msg('最多可同時加入 12 條詞綴條件',true);return}
-        if(!manualSelectedStats.some(s=>s.id===st.id)){
+        if(!manualSelectedStats.some(s=>s.id===st.id&&s.option===st.option)){
           manualSelectedStats.push({...st,minValue:'',maxValue:''});
           renderManualSelectedStats();
           btn.textContent='已加入';
@@ -2065,8 +2436,9 @@ $('copyAll').onclick=async()=>{
   msg(`已複製 ${rows.length} 筆清單`);
 };
 
-// 背景預先載入官方詞綴庫與監控狀態
+// 背景預先載入官方詞綴庫、共用詞綴修正庫與監控狀態
 fetch('/api/catalogue-status').catch(()=>{});
+loadSharedOverrides();
 pollMonitors(true);
 setInterval(()=>pollMonitors(false),10000);
 

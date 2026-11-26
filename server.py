@@ -251,7 +251,6 @@ def extract_rolls(s):
 def normalize_stat(s):
     s = re.sub(r'\{[^}]+\}', '', s)
     s = re.sub(r'\((?:implicit|crafted|fractured|enchant|scourge|crucible)\)', '', s, flags=re.I)
-    # Convert PoB roll ranges like (10-20) or (-5-10) into a single # placeholder
     s = re.sub(r'\(\s*[-+]?\d+(?:[.,]\d+)?\s*[-–—]\s*[-+]?\d+(?:[.,]\d+)?\s*\)', '#', s)
     s = re.sub(r'(?<![\w#])[-+]?\d+(?:[.,]\d+)?', '#', s)
     s = s.replace('’', "'").replace('–', '-').replace('＋', '+')
@@ -294,6 +293,141 @@ def canonical_stat(s):
     words = re.findall(r'[a-z0-9#]+', n)
     words = [PLURAL_MAP.get(w, w) for w in words]
     return ' '.join(words)
+
+
+# --- 全站玩家共用詞綴手動修正庫 (custom_mod_overrides.json) ---
+MOD_OVERRIDE_FILE = DATA_DIR / 'custom_mod_overrides.json'
+BUNDLED_MOD_OVERRIDE_FILE = ROOT / 'custom_mod_overrides.json'
+MOD_OVERRIDE_LOCK = threading.Lock()
+MOD_OVERRIDES = {}
+
+
+def load_mod_overrides():
+    loaded = {}
+    for path in (BUNDLED_MOD_OVERRIDE_FILE, MOD_OVERRIDE_FILE):
+        if path.exists():
+            try:
+                raw = json.loads(path.read_text(encoding='utf-8'))
+                src = raw.get('overrides') if isinstance(raw, dict) and isinstance(raw.get('overrides'), dict) else raw
+                if isinstance(src, dict):
+                    for k, v in src.items():
+                        if isinstance(v, dict) and isinstance(v.get('id'), str) and isinstance(v.get('zh'), str):
+                            loaded[k] = v
+            except Exception:
+                pass
+    MOD_OVERRIDES.clear()
+    MOD_OVERRIDES.update(loaded)
+
+
+def save_mod_overrides_unlocked():
+    payload = json.dumps({'version': 1, 'overrides': MOD_OVERRIDES}, ensure_ascii=False, indent=2)
+    try:
+        MOD_OVERRIDE_FILE.write_text(payload, encoding='utf-8')
+    except Exception:
+        pass
+    if BUNDLED_MOD_OVERRIDE_FILE != MOD_OVERRIDE_FILE:
+        try:
+            BUNDLED_MOD_OVERRIDE_FILE.write_text(payload, encoding='utf-8')
+        except Exception:
+            pass
+
+
+load_mod_overrides()
+
+
+def save_mod_override(mod_text, stat_id, zh_text, en_text='', option=None):
+    mod_text = str(mod_text or '').strip()
+    stat_id = str(stat_id or '').strip()
+    zh_text = str(zh_text or '').strip()
+    en_text = str(en_text or '').strip()
+    if not mod_text or len(mod_text) > 500:
+        raise ValueError('原始詞綴文字無效')
+    if not re.fullmatch(r'[a-z]{2,20}\.[a-z0-9_]{3,80}', stat_id):
+        raise ValueError('官方詞綴編號格式不正確')
+    if not zh_text or len(zh_text) > 240:
+        raise ValueError('請提供有效的繁體中文詞綴名稱')
+    opt_val = None
+    if option is not None and option != '':
+        if isinstance(option, (int, float)) and not isinstance(option, bool):
+            opt_val = int(option)
+        elif isinstance(option, str) and option.isdigit():
+            opt_val = int(option)
+
+    key = canonical_stat(mod_text) or normalize_stat(mod_text)
+    if not key:
+        raise ValueError('無法建立詞綴索引鍵')
+
+    entry = {
+        'key': key,
+        'exampleMod': mod_text,
+        'id': stat_id,
+        'option': opt_val,
+        'zh': zh_text,
+        'en': en_text,
+        'updatedAt': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    with MOD_OVERRIDE_LOCK:
+        MOD_OVERRIDES[key] = entry
+        save_mod_overrides_unlocked()
+    return entry
+
+
+def delete_mod_override(key_or_mod):
+    raw = str(key_or_mod or '').strip()
+    if not raw:
+        raise ValueError('缺少要刪除的詞綴鍵值')
+    canon = canonical_stat(raw)
+    norm = normalize_stat(raw)
+    with MOD_OVERRIDE_LOCK:
+        removed = False
+        for k in (raw, canon, norm):
+            if k and k in MOD_OVERRIDES:
+                del MOD_OVERRIDES[k]
+                removed = True
+        if removed:
+            save_mod_overrides_unlocked()
+        return len(MOD_OVERRIDES)
+
+
+def import_mod_overrides(raw_data):
+    if not isinstance(raw_data, dict):
+        raise ValueError('無效的共用詞綴庫 JSON 格式')
+    src = raw_data.get('overrides') if isinstance(raw_data.get('overrides'), dict) else raw_data
+    if not isinstance(src, dict):
+        raise ValueError('找不到 overrides 詞綴資料')
+    imported = 0
+    with MOD_OVERRIDE_LOCK:
+        for k, v in src.items():
+            if not isinstance(v, dict):
+                continue
+            sid = str(v.get('id', '')).strip()
+            zh = str(v.get('zh', '')).strip()
+            ex = str(v.get('exampleMod', k)).strip()
+            key = canonical_stat(ex) or str(k).strip()
+            if key and re.fullmatch(r'[a-z]{2,20}\.[a-z0-9_]{3,80}', sid) and zh:
+                opt = v.get('option')
+                opt_val = int(opt) if isinstance(opt, (int, float)) and not isinstance(opt, bool) else None
+                MOD_OVERRIDES[key] = {
+                    'key': key,
+                    'exampleMod': ex,
+                    'id': sid,
+                    'option': opt_val,
+                    'zh': zh,
+                    'en': str(v.get('en', '')).strip(),
+                    'updatedAt': str(v.get('updatedAt') or datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                }
+                imported += 1
+        save_mod_overrides_unlocked()
+        total = len(MOD_OVERRIDES)
+    return {'imported': imported, 'count': total}
+
+
+def list_mod_overrides():
+    with MOD_OVERRIDE_LOCK:
+        items = list(MOD_OVERRIDES.values())
+        raw_copy = dict(MOD_OVERRIDES)
+    items.sort(key=lambda x: x.get('updatedAt', ''), reverse=True)
+    return items, raw_copy
 
 
 def parse_catalogue(data):
@@ -368,6 +502,7 @@ def build_stat_indexes(en_entries, tw_entries, zh_by_id):
     by_subline = {}
     token_index = {}
     lookup = {}
+    expanded_entries = []
 
     tw_by_id_entry = {e['id']: e for e in tw}
 
@@ -382,7 +517,6 @@ def build_stat_indexes(en_entries, tw_entries, zh_by_id):
         ckey = canonical_stat(txt)
         by_canonical.setdefault(ckey, []).append(entry)
 
-        # Index individual lines of multi-line stats (e.g. Watcher's Eye / multi-line uniques)
         if '\n' in txt:
             for sub in txt.splitlines():
                 sub = sub.strip()
@@ -394,7 +528,6 @@ def build_stat_indexes(en_entries, tw_entries, zh_by_id):
         for token in stat_tokens(txt):
             token_index.setdefault(token, []).append(entry)
 
-        # Expand option-based stats (Cluster Jewels, Forbidden Flame/Flesh, Light of Meaning, Thread of Hope, etc.)
         if entry.get('options') and '#' in txt:
             tw_entry = tw_by_id_entry.get(sid)
             tw_opts = {}
@@ -414,6 +547,7 @@ def build_stat_indexes(en_entries, tw_entries, zh_by_id):
                     'option': opt_id,
                     'type': entry.get('type', ''),
                 }
+                expanded_entries.append(virt)
                 v_key = normalize_stat(exp_en)
                 by_text.setdefault(v_key, []).append(virt)
                 v_ckey = canonical_stat(exp_en)
@@ -428,6 +562,7 @@ def build_stat_indexes(en_entries, tw_entries, zh_by_id):
     return {
         'stats': stats,
         'tw': tw,
+        'expanded': expanded_entries,
         'lookup': lookup,
         'by_text': by_text,
         'by_canonical': by_canonical,
@@ -486,18 +621,22 @@ def search_trade_stats(query_str, kind_filter='all', limit=30):
     en_by_id = STAT_CACHE.get('en_by_id', {})
     tw_entries = STAT_CACHE.get('tw_entries', [])
     tw_by_text = STAT_CACHE.get('tw_by_text', {})
+    idx = STAT_CACHE.get('idx') or {}
+    expanded = idx.get('expanded', [])
     allowed = ('explicit.', 'implicit.', 'enchant.', 'crafted.', 'pseudo.', 'fractured.', 'scourge.', 'crucible.', 'veiled.')
     kind_prio = {'explicit': 0, 'pseudo': 1, 'implicit': 2, 'fractured': 3, 'crafted': 4, 'enchant': 5}
 
     tokens = [t for t in re.split(r'\s+', q) if t]
-    seen_ids = set()
+    seen_sigs = set()
     scored = []
 
-    def check_candidate(sid, zh_text, en_text):
+    def check_candidate(sid, zh_text, en_text, opt_val=None):
         if not sid.startswith(allowed):
             return
-        sid, zh_text = upgrade_to_local_damage(sid, zh_text, tw_by_text)
-        if sid in seen_ids:
+        if opt_val is None:
+            sid, zh_text = upgrade_to_local_damage(sid, zh_text, tw_by_text)
+        sig = (sid, opt_val)
+        if sig in seen_sigs:
             return
         k = sid.split('.', 1)[0]
         if kind_filter and kind_filter != 'all' and k != kind_filter:
@@ -507,7 +646,7 @@ def search_trade_stats(query_str, kind_filter='all', limit=30):
         hay = zh_low + ' ' + en_low
         if not all(t in hay for t in tokens):
             return
-        seen_ids.add(sid)
+        seen_sigs.add(sig)
         exact_boost = 0 if (q in zh_low or q in en_low) else 1
         prefix_boost = 0 if (zh_low.startswith(q) or en_low.startswith(q)) else 1
         local_bonus = 0 if is_local_added_dmg_zh(zh_text) else 1
@@ -519,6 +658,7 @@ def search_trade_stats(query_str, kind_filter='all', limit=30):
             len(zh_text or en_text),
             {
                 'id': sid,
+                'option': opt_val,
                 'zh': zh_text or en_text,
                 'en': en_text or '',
                 'kind': k,
@@ -528,10 +668,12 @@ def search_trade_stats(query_str, kind_filter='all', limit=30):
 
     for e in tw_entries:
         sid = e['id']
-        check_candidate(sid, e['text'], en_by_id.get(sid, ''))
+        check_candidate(sid, e['text'], en_by_id.get(sid, ''), None)
     for e in stats:
         sid = e['id']
-        check_candidate(sid, zh_by_id.get(sid, ''), e['text'])
+        check_candidate(sid, zh_by_id.get(sid, ''), e['text'], None)
+    for v in expanded:
+        check_candidate(v['id'], v.get('zh_override', ''), v.get('text', ''), v.get('option'))
 
     scored.sort(key=lambda x: (x[0], x[1], x[2], x[3], x[4]))
     return [x[5] for x in scored[:limit]]
@@ -672,6 +814,30 @@ def match_mods(mods):
         pref_kind = detect_mod_preferred_kind(mod)
         norm = normalize_stat(mod)
         canon = canonical_stat(mod)
+        override_key = canon or norm
+
+        # 0. Check shared community modifier overrides first
+        with MOD_OVERRIDE_LOCK:
+            ov = MOD_OVERRIDES.get(canon) or MOD_OVERRIDES.get(norm)
+        if ov:
+            sid = ov['id']
+            k = sid.split('.', 1)[0]
+            output.append({
+                'mod': mod,
+                'status': 'matched',
+                'id': sid,
+                'option': ov.get('option'),
+                'kind': k,
+                'kindLabel': STAT_KIND_LABELS.get(k, k),
+                'text': ov.get('en') or mod,
+                'zh': ov['zh'],
+                'rolls': extract_rolls(mod),
+                'translation_status': 'override',
+                'override': True,
+                'overrideKey': ov.get('key') or override_key,
+                'suggestions': [],
+            })
+            continue
 
         # 1. Exact normalized English match (including expanded options)
         choices = by_text.get(norm, [])
@@ -715,7 +881,6 @@ def match_mods(mods):
                 if len(suggestions) >= 8:
                     break
 
-            # Auto-match high-confidence fuzzy results (grouping same-text explicit/implicit variants)
             if scored and scored[0][0] >= 0.82:
                 top_score = scored[0][0]
                 top_group = [e for sc, e in scored if top_score - sc <= 0.03 and entry_zh(e, zh_by_id)]
@@ -746,6 +911,8 @@ def match_mods(mods):
                 'zh': zh,
                 'rolls': extract_rolls(mod),
                 'translation_status': 'verified' if zh else 'unavailable',
+                'override': False,
+                'overrideKey': override_key,
                 'suggestions': suggestions,
             })
         elif choices:
@@ -781,6 +948,8 @@ def match_mods(mods):
                     'zh': pzh,
                     'rolls': extract_rolls(mod),
                     'translation_status': 'auto',
+                    'override': False,
+                    'overrideKey': override_key,
                     'reason': '多個相同文字的交易 ID，已優先選取對應詞綴；可自行更改',
                     'suggestions': opts,
                 })
@@ -791,6 +960,8 @@ def match_mods(mods):
                     'reason': '同一模板存在多個 ID，但沒有可靠中文對照',
                     'zh': known_zh,
                     'rolls': extract_rolls(mod),
+                    'override': False,
+                    'overrideKey': override_key,
                     'suggestions': opts,
                 })
         else:
@@ -807,6 +978,8 @@ def match_mods(mods):
                 'zh': known_zh or preview,
                 'translation_status': 'candidate' if preview and not known_zh else ('hint' if known_zh else 'unavailable'),
                 'rolls': extract_rolls(mod),
+                'override': False,
+                'overrideKey': override_key,
                 'suggestions': suggestions,
             })
     return output
@@ -877,7 +1050,6 @@ def parse_pasted_item_text(raw_text):
         if ln:
             mod_lines.append(ln)
 
-    # Filter out single-word base type line right after header (e.g. '單手劍')
     if has_header and mod_lines and not re.search(r'[0-9+#%]', mod_lines[0]) and len(mod_lines[0]) <= 12:
         mod_lines = mod_lines[1:]
 
@@ -1764,7 +1936,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
         if route == '/health':
-            self.reply({'ok': True, 'version': '2.31-web'})
+            self.reply({'ok': True, 'version': '2.32-web'})
             return
         if route == '/api/catalogue-status':
             try:
@@ -1785,6 +1957,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply({'ok': True, 'stats': search_trade_stats(q, k)})
             except Exception as e:
                 self.reply({'ok': False, 'error': str(e)}, 400)
+            return
+        if route == '/api/mod-overrides':
+            items, raw_copy = list_mod_overrides()
+            self.reply({'ok': True, 'count': len(items), 'overrides': items, 'raw': raw_copy})
             return
         if route == '/api/monitors':
             cid = self.get_client_id()
@@ -1815,6 +1991,7 @@ class Handler(BaseHTTPRequestHandler):
         allowed_paths = (
             '/api/parse', '/api/parse-item-text', '/api/poedb', '/api/trade-link', '/api/names',
             '/api/match-mods', '/api/catalogue-import', '/api/catalogue-refresh',
+            '/api/mod-overrides/save', '/api/mod-overrides/delete', '/api/mod-overrides/import',
             '/api/monitors/add', '/api/monitors/toggle', '/api/monitors/delete',
             '/api/monitors/check', '/api/monitors/settings', '/api/monitors/test-discord',
             '/api/monitors/ack', '/api/monitors/clear-alerts',
@@ -1836,6 +2013,24 @@ class Handler(BaseHTTPRequestHandler):
                 en, zh, meta = fetch_trade_stats(refresh=True)
                 get_official_item_map(refresh=True)
                 self.reply({'ok': True, 'meta': meta})
+                return
+            elif route == '/api/mod-overrides/save':
+                entry = save_mod_override(
+                    data.get('mod', ''),
+                    data.get('id', ''),
+                    data.get('zh', ''),
+                    data.get('en', ''),
+                    data.get('option'),
+                )
+                self.reply({'ok': True, 'entry': entry, 'count': len(MOD_OVERRIDES)})
+                return
+            elif route == '/api/mod-overrides/delete':
+                cnt = delete_mod_override(data.get('key') or data.get('mod') or '')
+                self.reply({'ok': True, 'count': cnt})
+                return
+            elif route == '/api/mod-overrides/import':
+                res = import_mod_overrides(data.get('data'))
+                self.reply({'ok': True, **res})
                 return
             elif route == '/api/parse':
                 result = parse_pob(data.get('code', ''), data.get('source', ''))
@@ -2034,7 +2229,7 @@ if __name__ == '__main__':
     host = '0.0.0.0'
     port = int(os.environ.get('PORT', '8766'))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'POE 裝備統計 V2.31 (解除固定屬性鎖定 + 全面提升詞綴中文翻譯率): http://{host}:{port}/')
+    print(f'POE 裝備統計 V2.32 (詞綴手動搜尋修正 + 全站玩家共用詞綴庫): http://{host}:{port}/')
     is_cloud = any(os.environ.get(k) for k in ('PORT', 'RENDER', 'ZEABUR', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME'))
     if not is_cloud:
         threading.Timer(0.8, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()
