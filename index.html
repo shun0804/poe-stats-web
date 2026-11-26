@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>POE 裝備統計助手 V2.28</title>
+<title>POE 裝備統計助手 V2.30</title>
 <style>
 :root{
   --nav-bg:#2b3643;
@@ -229,9 +229,11 @@ input::placeholder,textarea::placeholder{color:#b4b8c2}
 .notice{
   padding:12px 16px;border-radius:5px;margin-bottom:16px;font-size:15px;
   background:#f0f9eb;border:1px solid #e1f3d8;color:#389e0d;
-  display:flex;align-items:center;justify-content:space-between;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  font-weight:500;
 }
 .notice.error{background:#fef0f0;border-color:#fde2e2;color:#f56c6c}
+.notice.warn{background:#fdf6ec;border-color:#f5dab1;color:#b45309;font-weight:600}
 
 /* Table Toolbar */
 .table-toolbar{
@@ -263,6 +265,11 @@ tbody tr.item-row.expanded td{border-bottom:0}
 .pending-tag{
   display:inline-block;margin-left:8px;padding:1px 8px;border-radius:4px;
   font-size:12px;font-weight:600;background:#fdf6ec;color:#b45309;border:1px solid #faecd8;
+  vertical-align:middle;
+}
+.foulborn-tag{
+  display:inline-block;margin-left:8px;padding:1px 8px;border-radius:4px;
+  font-size:12px;font-weight:700;background:#f3e8ff;color:#7e22ce;border:1px solid #e9d5ff;
   vertical-align:middle;
 }
 .status-pill{
@@ -307,6 +314,12 @@ tr.mod-drawer-row td{
 }
 .modrow:last-child{border-bottom:0}
 .modrow:hover{background:#f8fafc}
+.modrow.is-implicit{
+  background:#fafafa;
+  opacity:.78;
+}
+.modrow.is-implicit .modcheck{cursor:not-allowed}
+.modrow.is-implicit .modlabel{cursor:default;color:var(--text-regular)}
 .modrow .modcheck{width:20px;height:20px;accent-color:var(--mint);cursor:pointer;margin:0;flex:none}
 .modrow .modlabel{flex:1;font-size:16px;color:var(--text-main);cursor:pointer}
 .modrow .modlabel.pending{color:#b45309}
@@ -426,7 +439,7 @@ tr.mod-drawer-row td{
     <div class="brand">
       <span class="brand-logo">P</span>
       <span>POE 裝備統計</span>
-      <span class="ver-pill">V2.28</span>
+      <span class="ver-pill">V2.30</span>
     </div>
   </div>
   <div class="topbar-right">
@@ -844,9 +857,21 @@ function detailKey(x){return x.kind+'|'+x.name+'|'+(x.slot||'')+'|'+(x.base||'')
 function localizedBase(x){return translations['base|'+x.base]?.zh||x.base||''}
 function persistNames(){localStorage.setItem('poeStatsV22Translations',JSON.stringify(translations))}
 
+function isFoulbornItem(x, zhName){
+  const en=(x?.name||'').trim().toLowerCase();
+  const zh=(zhName||'').trim();
+  return en.startsWith('foulborn ')||/^穢生/.test(zh);
+}
+function stripFoulbornZh(zhName){
+  return String(zhName||'').replace(/^穢生[．·\s]*/,'').trim();
+}
+
 function save(){localStorage.setItem('poeStatsV2',JSON.stringify(chars));render();seedNames()}
-function msg(s,err=false){
-  $('message').innerHTML=`<div class="notice ${err?'error':''}"><span>${esc(s)}</span><button style="background:transparent;border:0;color:inherit;cursor:pointer;font-weight:700;font-size:16px" onclick="this.parentElement.remove()">✕</button></div>`;
+function msg(s,type=false){
+  let cls='notice';
+  if(type===true||type==='error')cls+=' error';
+  else if(type==='warn')cls+=' warn';
+  $('message').innerHTML=`<div class="${cls}"><span>${esc(s)}</span><button style="background:transparent;border:0;color:inherit;cursor:pointer;font-weight:700;font-size:16px" onclick="this.parentElement.remove()">✕</button></div>`;
 }
 async function api(path,payload){
   const res=await fetch(path,{
@@ -1094,7 +1119,15 @@ function groupedForTab(targetTab){
       if(found.has(key))continue;found.add(key);
       let v=m.get(key)||{name,base,slot,kind:x.kind,count:0,variants:[]};
       v.count++;
-      if(x.kind==='rare'||x.kind==='unique')v.variants.push({mods:x.mods||[],source:c.source||c.id,originalName:x.name});
+      if(x.kind==='rare'||x.kind==='unique'){
+        v.variants.push({
+          mods:x.mods||[],
+          implicit_count:x.implicit_count||0,
+          mod_entries:x.mod_entries||null,
+          source:c.source||c.id,
+          originalName:x.name,
+        });
+      }
       m.set(key,v);
     }
   }
@@ -1120,10 +1153,10 @@ function buildSearchPayload(x){
   }
   if(!league)throw Error('請填入台服聯盟名稱');
   const dKey=detailKey(x);
-  // 只有在詞綴篩選目前處於「展開」狀態時，才一併帶入勾選的詞綴；收合後則直接搜尋名稱
+  // 只有在詞綴篩選目前處於「展開」狀態時，才一併帶入勾選的詞綴（且排除固定屬性）；收合後則直接搜尋名稱
   const isDrawerOpen=(expandedDetailKey===dKey);
   const detail=isDrawerOpen?jewelDetails[dKey]:null;
-  const selected=((tab==='gear'||tab==='jewels'||tab==='rare')&&detail)?detail.filter(z=>z.checked&&z.id):[];
+  const selected=((tab==='gear'||tab==='jewels'||tab==='rare')&&detail)?detail.filter(z=>z.checked&&z.id&&!z.isImplicit):[];
   const statIds=selected.map(z=>z.id);
   const statFilters=selected.map(z=>{
     const hasMin=z.minValue!==''&&z.minValue!==null&&z.minValue!==undefined&&!isNaN(Number(z.minValue));
@@ -1133,10 +1166,20 @@ function buildSearchPayload(x){
     const hasMin=z.minValue!==''&&z.minValue!==null&&z.minValue!==undefined&&!isNaN(Number(z.minValue));
     return hasMin?`${z.zh} (≥ ${z.minValue})`:z.zh;
   });
-  const displayName=tab==='rare'?(localizedBase(x)||x.name):(tr?.zh||x.name);
+
+  const rawDisplayName=tab==='rare'?(localizedBase(x)||x.name):(tr?.zh||x.name);
+  const foulborn=(tab!=='rare'&&isFoulbornItem(x,tr?.zh));
+  const searchName=tab==='rare'?x.name:(foulborn?stripFoulbornZh(tr.zh):tr.zh);
+
+  if(foulborn){
+    condParts.unshift(`穢生版本（搜尋「${searchName}」）`);
+  }
+
   return {
-    name:tab==='rare'?x.name:tr.zh,
-    displayName,
+    name:searchName,
+    searchName,
+    displayName:rawDisplayName,
+    isFoulborn:foulborn,
     league,
     kind:x.kind,
     base:tab==='rare'?(localizedBase(x)!==x.base?localizedBase(x):''):(x.base||''),
@@ -1150,12 +1193,13 @@ function buildInlineDrawer(x, i, dKey){
   const loading=!!modLoading[dKey];
   const err=modErrors[dKey];
   const arr=jewelDetails[dKey]||[];
-  const matchedCount=arr.filter(m=>m.id).length;
-  const checkedCount=arr.filter(m=>m.checked&&m.id).length;
+  const explicitSelectable=arr.filter(m=>m.id&&!m.isImplicit).length;
+  const implicitCount=arr.filter(m=>m.isImplicit).length;
+  const checkedCount=arr.filter(m=>m.checked&&m.id&&!m.isImplicit).length;
 
   let headInfo='正在比對官方交易詞綴資料…';
   if(!loading&&!err){
-    headInfo=`已對應 ${matchedCount} / ${arr.length} 條詞綴（展開期間搜尋或監控將套用勾選條件；收合後則僅搜名稱）`;
+    headInfo=`可選外顯詞綴 ${explicitSelectable} 條${implicitCount?`（已自動鎖定 ${implicitCount} 條固定屬性，不納入搜尋）`:''}`;
   }else if(err){
     headInfo='讀取詞綴失敗';
   }
@@ -1170,6 +1214,15 @@ function buildInlineDrawer(x, i, dKey){
   }else{
     bodyHtml=arr.map((m,mi)=>{
       const name=m.zh?esc(m.zh):esc(m.mod);
+      if(m.isImplicit){
+        return `<div class="modrow is-implicit">
+          <input class="modcheck" type="checkbox" id="modcheck-${i}-${mi}" disabled>
+          <label class="modlabel" for="modcheck-${i}-${mi}">
+            <span class="affix-badge affix-implicit">固定屬性</span>${name}
+            <small>固定屬性（系統自動鎖定，不納入搜尋條件）</small>
+          </label>
+        </div>`;
+      }
       const candidates=(m.suggestions||[]).filter(z=>z.zh);
       const rollHint=(m.rolls&&m.rolls.length)?m.rolls[0]:null;
       const minBox=m.id?`<div class="mod-min-box">
@@ -1193,13 +1246,13 @@ function buildInlineDrawer(x, i, dKey){
         <div class="mod-drawer-head">
           <span class="mod-drawer-info">${esc(headInfo)}</span>
           <div class="mod-drawer-tools">
-            ${(!loading&&!err&&matchedCount>0)?`<button class="btn btn-default btn-xs" data-select-all="${esc(dKey)}">全選</button><button class="btn btn-default btn-xs" data-clear-all="${esc(dKey)}">全不選</button>`:''}
+            ${(!loading&&!err&&explicitSelectable>0)?`<button class="btn btn-default btn-xs" data-select-all="${esc(dKey)}">全選</button><button class="btn btn-default btn-xs" data-clear-all="${esc(dKey)}">全不選</button>`:''}
             <button class="btn btn-default btn-xs" data-close-drawer="1">收合 ▲</button>
           </div>
         </div>
         <div>${bodyHtml}</div>
         <div class="modbottom">
-          <span style="font-size:15px;color:var(--text-regular);font-weight:600" id="drawer-count-${i}">已選取 ${checkedCount} 條詞綴</span>
+          <span style="font-size:15px;color:var(--text-regular);font-weight:600" id="drawer-count-${i}">已選取 ${checkedCount} 條外顯詞綴</span>
           <div class="modbottom-actions">
             <button class="btn btn-amber-outline btn-sm" data-drawer-monitor="${i}" ${loading?'disabled':''}>🔔 加入 10 分鐘監控</button>
             <button class="btn btn-mint btn-sm" data-drawer-trade="${i}" ${loading?'disabled':''}>台服一鍵搜尋已勾選詞綴</button>
@@ -1218,14 +1271,20 @@ async function runTradeSearch(rowIndex, triggerBtn){
   const market=window.open('about:blank','_blank');
   if(market){
     market.document.title='正在建立台服交易搜尋…';
-    market.document.body.textContent='正在建立「'+payload.displayName+'」的交易搜尋，請稍候…';
+    market.document.body.textContent=payload.isFoulborn
+      ?`⚠️ 提示：此物品為「穢生版本」，正在以「${payload.searchName}」建立台服交易搜尋，請稍候…`
+      :`正在建立「${payload.displayName}」的交易搜尋，請稍候…`;
   }
   if(triggerBtn)triggerBtn.disabled=true;
   try{
     const result=await api('/api/trade-link',payload);
     if(market)market.location.replace(result.url);
     else window.open(result.url,'_blank','noopener');
-    msg('已建立「'+payload.displayName+'」的台服交易搜尋');
+    if(payload.isFoulborn){
+      msg(`⚠️ 提示：此物品為穢生版本（已自動以「${payload.searchName}」搜尋台服市集，請留意賣場上的穢生變異詞綴）`,'warn');
+    }else{
+      msg('已建立「'+payload.displayName+'」的台服交易搜尋');
+    }
   }catch(e){
     if(market)market.close();
     msg('無法建立交易搜尋：'+e.message,true);
@@ -1247,7 +1306,11 @@ async function addItemMonitor(rowIndex, triggerBtn){
     const res=await api('/api/monitors/add',{...payload,statusOption:'online'});
     await pollMonitors(true);
     const total=res.initial?.total??0;
-    msg(`已加入 10 分鐘自動監控：「${payload.displayName}」（目前線上在售 ${total} 筆，之後有新上架將立即通知）`);
+    if(payload.isFoulborn){
+      msg(`⚠️ 提示：此物品為穢生版本！已自動以「${payload.searchName}」加入 10 分鐘監控（目前線上在售 ${total} 筆）`,'warn');
+    }else{
+      msg(`已加入 10 分鐘自動監控：「${payload.displayName}」（目前線上在售 ${total} 筆，之後有新上架將立即通知）`);
+    }
   }catch(e){
     msg(e.message,true);
   }finally{
@@ -1258,7 +1321,6 @@ async function addItemMonitor(rowIndex, triggerBtn){
 async function toggleInlineMods(x){
   const dKey=detailKey(x);
   if(expandedDetailKey===dKey){
-    // 收合後清空詞綴條件，回到僅搜尋名稱模式
     delete jewelDetails[dKey];
     expandedDetailKey=null;
     renderLinks();
@@ -1272,14 +1334,43 @@ async function toggleInlineMods(x){
   }
   expandedDetailKey=dKey;
 
-  const all=[...new Set(variants.flatMap(v=>v.mods))];
+  // Combine mods across variants while preserving implicit vs explicit flag
+  const modMap=new Map();
+  for(const v of variants){
+    if(Array.isArray(v.mod_entries)&&v.mod_entries.length){
+      for(const me of v.mod_entries){
+        if(!me||!me.text)continue;
+        const prev=modMap.get(me.text);
+        modMap.set(me.text,{text:me.text,implicit:Boolean(me.implicit||(prev&&prev.implicit))});
+      }
+    }else{
+      const impCnt=Number(v.implicit_count)||0;
+      (v.mods||[]).forEach((txt,idx)=>{
+        if(!txt)return;
+        const isImp=(idx<impCnt);
+        const prev=modMap.get(txt);
+        modMap.set(txt,{text:txt,implicit:Boolean(isImp||(prev&&prev.implicit))});
+      });
+    }
+  }
+  const allEntries=[...modMap.values()];
+
   modLoading[dKey]=true;
   delete modErrors[dKey];
   renderLinks();
 
   try{
-    const result=await api('/api/match-mods',{mods:all});
+    const result=await api('/api/match-mods',{mods:allEntries});
     jewelDetails[dKey]=result.mods.map(m=>{
+      const isImp=Boolean(m.isImplicit);
+      if(isImp){
+        return {
+          ...m,
+          isImplicit:true,
+          checked:false,
+          minValue:'',
+        };
+      }
       const exact=(m.suggestions||[]).filter(c=>c.score===100&&c.zh);
       const ranked=exact.slice().sort((a,b)=>{
         const priority=id=>({explicit:0,fractured:1,crafted:2,implicit:3,enchant:4,pseudo:5}[String(id).split('.')[0]]??9);
@@ -1290,6 +1381,7 @@ async function toggleInlineMods(x){
       const chosenZh=m.id?m.zh:(auto?.zh||m.zh||'');
       return {
         ...m,
+        isImplicit:false,
         id:chosenId,
         zh:chosenZh,
         status:auto?'matched':m.status,
@@ -1324,9 +1416,11 @@ function renderLinks(){
   $('links').innerHTML=rows.map((x,i)=>{
     let tr=translated(x), ok=tr&&tr.status==='verified'&&tr.zh;
     if(tab==='rare'){tr=translations['base|'+x.base];ok=!!(tr&&tr.status==='verified'&&tr.zh);}
+    const foulborn=(tab!=='rare'&&isFoulbornItem(x,tr?.zh));
+    const foulbornBadge=foulborn?`<span class="foulborn-tag">穢生版本</span>`:'';
     let nameCell=ok
-      ?(tr.source?`<a class="item-zh-link" href="${esc(tr.source)}" target="_blank" rel="noopener">${esc(tr.zh)}</a>`:`<span class="item-zh-link">${esc(tr.zh)}</span>`)
-      :`<span class="item-unverified">${esc(x.name)}</span><span class="pending-tag">待核對</span>`;
+      ?(tr.source?`<a class="item-zh-link" href="${esc(tr.source)}" target="_blank" rel="noopener">${esc(tr.zh)}</a>${foulbornBadge}`:`<span class="item-zh-link">${esc(tr.zh)}</span>${foulbornBadge}`)
+      :`<span class="item-unverified">${esc(x.name)}</span>${foulbornBadge}<span class="pending-tag">待核對</span>`;
 
     const dKey=detailKey(x);
     const isExpanded=(expandedDetailKey===dKey);
@@ -1370,7 +1464,7 @@ function renderLinks(){
 
   document.querySelectorAll('[data-select-all]').forEach(b=>b.onclick=()=>{
     const arr=jewelDetails[b.dataset.selectAll]||[];
-    arr.forEach(m=>{if(m.id)m.checked=true});
+    arr.forEach(m=>{if(m.id&&!m.isImplicit)m.checked=true});
     renderLinks();
   });
 
@@ -1383,17 +1477,17 @@ function renderLinks(){
   document.querySelectorAll('[data-mod-key]').forEach(b=>b.onchange=()=>{
     const arr=jewelDetails[b.dataset.modKey]||[];
     const m=arr[+b.dataset.mi];
-    if(m)m.checked=b.checked;
-    const n=arr.filter(z=>z.checked&&z.id).length;
+    if(m&&!m.isImplicit)m.checked=b.checked;
+    const n=arr.filter(z=>z.checked&&z.id&&!z.isImplicit).length;
     const rowIdx=rows.findIndex(r=>detailKey(r)===b.dataset.modKey);
     const countEl=$('drawer-count-'+rowIdx);
-    if(countEl)countEl.textContent='已選取 '+n+' 條詞綴';
+    if(countEl)countEl.textContent='已選取 '+n+' 條外顯詞綴';
   });
 
   document.querySelectorAll('[data-min-key]').forEach(inp=>inp.oninput=()=>{
     const arr=jewelDetails[inp.dataset.minKey]||[];
     const m=arr[+inp.dataset.minMi];
-    if(m){
+    if(m&&!m.isImplicit){
       m.minValue=inp.value;
       if(inp.value!==''&&m.id)m.checked=true;
     }
@@ -1402,7 +1496,7 @@ function renderLinks(){
   document.querySelectorAll('[data-fill-roll]').forEach(btn=>btn.onclick=()=>{
     const arr=jewelDetails[btn.dataset.fillRoll]||[];
     const m=arr[+btn.dataset.fillMi];
-    if(m){
+    if(m&&!m.isImplicit){
       m.minValue=btn.dataset.roll;
       if(m.id)m.checked=true;
       renderLinks();
@@ -1412,7 +1506,7 @@ function renderLinks(){
   document.querySelectorAll('[data-choice-key]').forEach(b=>b.onchange=()=>{
     const arr=jewelDetails[b.dataset.choiceKey]||[];
     const m=arr[+b.dataset.choiceMi];
-    if(!m)return;
+    if(!m||m.isImplicit)return;
     const pick=(m.suggestions||[]).find(c=>c.id===b.value);
     m.id=pick?.id||null;
     m.zh=pick?.zh||m.zh;
@@ -1435,26 +1529,43 @@ function renderLinks(){
 /* =========================================================
    Manual Item & Modifier Monitor Builder Logic
    ========================================================= */
+function updateManualItemHint(){
+  const k=$('manualKind').value;
+  const val=$('manualItemName').value.trim();
+  const hintEl=$('manualItemHint');
+  if(k==='unique'&&isFoulbornItem({name:val},val)){
+    const stripped=stripFoulbornZh(val.replace(/^foulborn\s+/i,''));
+    hintEl.innerHTML=`<span style="color:#b45309;font-weight:600">⚠️ 提示：此物品為穢生版本，搜尋與監控時將自動以「${esc(stripped||val)}」查詢台服市集。</span>`;
+    return;
+  }
+  if(k==='unique'){
+    hintEl.textContent='支援自動搜尋台服官方譯名，也可直接輸入英文原名。';
+  }else if(k==='rare'){
+    hintEl.textContent='若留空則不限制裝備基底，直接搜尋所有符合下方詞綴條件的稀有裝備。';
+  }else{
+    hintEl.textContent='輸入中文或英文技能寶石名稱。';
+  }
+}
+
 $('manualKind').onchange=()=>{
   const k=$('manualKind').value;
   $('manualItemMenu').hidden=true;
   if(k==='unique'){
     $('manualItemLabel').textContent='傳奇裝備名稱（中／英文皆可）';
     $('manualItemName').placeholder='輸入關鍵字搜尋，例如：看守之眼、獵首、Mageblood...';
-    $('manualItemHint').textContent='支援自動搜尋台服官方譯名，也可直接輸入英文原名。';
   }else if(k==='rare'){
     $('manualItemLabel').textContent='稀有裝備基底（可留空只搜詞綴）';
     $('manualItemName').placeholder='輸入基底名稱搜尋，例如：脊弓、鈷藍珠寶、星團珠寶（可留空）...';
-    $('manualItemHint').textContent='若留空則不限制裝備基底，直接搜尋所有符合下方詞綴條件的稀有裝備。';
   }else{
     $('manualItemLabel').textContent='技能寶石名稱（中／英文皆可）';
     $('manualItemName').placeholder='輸入寶石名稱搜尋，例如：雙持打擊．靈活、啟蒙輔助...';
-    $('manualItemHint').textContent='輸入中文或英文技能寶石名稱。';
   }
+  updateManualItemHint();
 };
 
 let itemAcTimer=null;
 $('manualItemName').oninput=()=>{
+  updateManualItemHint();
   clearTimeout(itemAcTimer);
   const q=$('manualItemName').value.trim();
   const menu=$('manualItemMenu');
@@ -1474,6 +1585,7 @@ $('manualItemName').oninput=()=>{
         row.onclick=()=>{
           const picked=d.items[+row.dataset.acIdx];
           if(picked)$('manualItemName').value=picked.zh;
+          updateManualItemHint();
           menu.hidden=true;
         };
       });
@@ -1552,9 +1664,14 @@ $('manualParseBtn').onclick=async()=>{
     }
     if(p.itemName){
       $('manualItemName').value=p.itemName;
+      updateManualItemHint();
     }
-    let added=0,unmatched=0;
+    let added=0,skippedImplicit=0,unmatched=0;
     for(const m of (p.mods||[])){
+      if(m.isImplicit){
+        skippedImplicit++;
+        continue;
+      }
       if(m.id){
         if(!manualSelectedStats.some(s=>s.id===m.id)&&manualSelectedStats.length<12){
           const roll=(m.rolls&&m.rolls.length)?String(m.rolls[0]):'';
@@ -1574,7 +1691,10 @@ $('manualParseBtn').onclick=async()=>{
       }
     }
     renderManualSelectedStats();
-    msg(`解析完成：已自動帶入 ${added} 條詞綴條件${unmatched?`（另有 ${unmatched} 條未能自動對應，可於上方搜尋框手動補強）`:''}。`);
+    const extraNotes=[];
+    if(skippedImplicit)extraNotes.push(`已自動略過 ${skippedImplicit} 條固定屬性`);
+    if(unmatched)extraNotes.push(`另有 ${unmatched} 條未能自動對應`);
+    msg(`解析完成：已自動帶入 ${added} 條外顯詞綴${extraNotes.length?`（${extraNotes.join('，')}）`:''}。`,p.isFoulborn?'warn':false);
   }catch(e){
     msg(e.message,true);
   }finally{
@@ -1645,10 +1765,19 @@ function buildManualPayload(){
     return s.zh;
   });
 
+  const foulborn=(kind==='unique'&&isFoulbornItem({name:rawName},rawName));
+  const searchName=kind==='rare'?(rawName||'自訂稀有裝備'):(foulborn?stripFoulbornZh(rawName):rawName);
   const displayName=rawName||(kind==='rare'?'自訂詞綴稀有裝備':'自訂裝備');
+
+  if(foulborn){
+    condParts.unshift(`穢生版本（搜尋「${searchName}」）`);
+  }
+
   return {
-    name:kind==='rare'?(rawName||'自訂稀有裝備'):rawName,
+    name:searchName,
+    searchName,
     displayName,
+    isFoulborn:foulborn,
     league,
     kind,
     base:kind==='rare'?rawName:'',
@@ -1665,6 +1794,7 @@ $('manualResetBtn').onclick=()=>{
   $('manualStatResults').hidden=true;
   $('manualPasteText').value='';
   manualSelectedStats=[];
+  updateManualItemHint();
   renderManualSelectedStats();
   msg('已清空手動新增表單');
 };
@@ -1675,14 +1805,20 @@ $('manualTestSearchBtn').onclick=async()=>{
   const market=window.open('about:blank','_blank');
   if(market){
     market.document.title='正在建立台服交易搜尋…';
-    market.document.body.textContent='正在建立「'+payload.displayName+'」的交易搜尋，請稍候…';
+    market.document.body.textContent=payload.isFoulborn
+      ?`⚠️ 提示：此物品為「穢生版本」，正在以「${payload.searchName}」建立台服交易搜尋，請稍候…`
+      :`正在建立「${payload.displayName}」的交易搜尋，請稍候…`;
   }
   const btn=$('manualTestSearchBtn');btn.disabled=true;
   try{
     const res=await api('/api/trade-link',payload);
     if(market)market.location.replace(res.url);
     else window.open(res.url,'_blank','noopener');
-    msg('已開啟「'+payload.displayName+'」的台服賣場搜尋結果');
+    if(payload.isFoulborn){
+      msg(`⚠️ 提示：此物品為穢生版本（已自動以「${payload.searchName}」搜尋台服市集，請留意賣場上的穢生變異詞綴）`,'warn');
+    }else{
+      msg('已開啟「'+payload.displayName+'」的台服賣場搜尋結果');
+    }
   }catch(e){
     if(market)market.close();
     msg(e.message,true);
@@ -1702,7 +1838,11 @@ $('manualAddMonitorBtn').onclick=async()=>{
     const res=await api('/api/monitors/add',payload);
     await pollMonitors(true);
     const total=res.initial?.total??0;
-    msg(`已成功添加至監管名單：「${payload.displayName}」（目前在售 ${total} 筆，每 10 分鐘自動巡檢）`);
+    if(payload.isFoulborn){
+      msg(`⚠️ 提示：此物品為穢生版本！已自動以「${payload.searchName}」加入監管名單（目前在售 ${total} 筆）`,'warn');
+    }else{
+      msg(`已成功添加至監管名單：「${payload.displayName}」（目前在售 ${total} 筆，每 10 分鐘自動巡檢）`);
+    }
     switchView('monitor');
   }catch(e){
     msg(e.message,true);

@@ -65,18 +65,23 @@ def parse_item(item):
         'Rarity:', 'Level:', 'Dex:', 'Str:', 'Int:',
     )
     mods = []
+    mod_entries = []
     implicit_count = 0
-    for x in lines[2:]:
-        if x.startswith('Implicits:'):
+    seen_implicits_header = False
+    remaining_implicits = 0
+    for raw_line in lines[2:]:
+        if raw_line.startswith('Implicits:'):
             try:
-                implicit_count = int(x.split(':', 1)[1].strip())
+                implicit_count = int(raw_line.split(':', 1)[1].strip())
             except ValueError:
-                pass
+                implicit_count = 0
+            seen_implicits_header = True
+            remaining_implicits = implicit_count
             continue
         if (
-            x == base
-            or x.startswith(ignore)
-            or x.startswith((
+            raw_line == base
+            or raw_line.startswith(ignore)
+            or raw_line.startswith((
                 'Has Influence:', 'Influence:', 'Tags:', 'ArmourBasePercentile:',
                 'EvasionBasePercentile:', 'EnergyShieldBasePercentile:',
                 'BasePercentile:', 'DefencePercentile:', 'CraftedMods:',
@@ -84,15 +89,25 @@ def parse_item(item):
             ))
         ):
             continue
-        if x.startswith('{') and '}' in x:
-            x = x.split('}', 1)[1]
-        if x and not x.startswith(('Item ', 'Requires ')):
-            mods.append(x)
+        low_raw = raw_line.lower()
+        has_implicit_tag = ('{implicit}' in low_raw) or ('{enchant}' in low_raw)
+        clean_x = re.sub(r'^(?:\{[^}]*\})+', '', raw_line).strip()
+        if clean_x and not clean_x.startswith(('Item ', 'Requires ')):
+            if seen_implicits_header and remaining_implicits > 0:
+                is_imp = True
+                remaining_implicits -= 1
+            elif has_implicit_tag:
+                is_imp = True
+            else:
+                is_imp = False
+            mods.append(clean_x)
+            mod_entries.append({'text': clean_x, 'implicit': is_imp})
     return {
         'rarity': rarity,
         'name': name,
         'base': base,
         'mods': mods,
+        'mod_entries': mod_entries,
         'raw': '\n'.join(lines),
         'implicit_count': implicit_count,
     }
@@ -533,10 +548,18 @@ def match_mods(mods):
     for e in tw:
         tw_by_text.setdefault(normalize_stat(e['text']), []).append(e)
     output = []
-    for mod in mods:
+    for item_entry in mods:
+        if isinstance(item_entry, dict):
+            mod = item_entry.get('text', '')
+            is_implicit = bool(item_entry.get('implicit', False))
+        else:
+            mod = item_entry
+            is_implicit = False
         if not isinstance(mod, str) or len(mod) > 500:
             continue
-        pref_kind = detect_mod_preferred_kind(mod)
+        if '(implicit)' in mod.lower():
+            is_implicit = True
+        pref_kind = 'implicit' if is_implicit else detect_mod_preferred_kind(mod)
         norm = normalize_stat(mod)
         choices = by_text.get(norm, [])
         if not choices and re.search(r'[\u3400-\u9fff]', mod):
@@ -582,14 +605,16 @@ def match_mods(mods):
         if len(ids) == 1:
             sid = next(iter(ids))
             zh = zh_by_id.get(sid, '') or known_zh
-            sid, zh = upgrade_to_local_damage(sid, zh, tw_by_text)
-            k = sid.split('.', 1)[0]
+            if not is_implicit:
+                sid, zh = upgrade_to_local_damage(sid, zh, tw_by_text)
+            k = 'implicit' if is_implicit else sid.split('.', 1)[0]
             output.append({
                 'mod': mod,
+                'isImplicit': is_implicit,
                 'status': 'matched',
                 'id': sid,
                 'kind': k,
-                'kindLabel': STAT_KIND_LABELS.get(k, k),
+                'kindLabel': '固定屬性' if is_implicit else STAT_KIND_LABELS.get(k, k),
                 'text': choices[0]['text'],
                 'zh': zh,
                 'rolls': extract_rolls(mod),
@@ -601,20 +626,27 @@ def match_mods(mods):
             opts = []
             seen_opt = set()
             for x in choices[:12]:
-                ox_id, ox_zh = upgrade_to_local_damage(x['id'], zh_by_id.get(x['id'], known_zh), tw_by_text)
+                if is_implicit:
+                    ox_id, ox_zh = x['id'], zh_by_id.get(x['id'], known_zh)
+                else:
+                    ox_id, ox_zh = upgrade_to_local_damage(x['id'], zh_by_id.get(x['id'], known_zh), tw_by_text)
                 if ox_id in seen_opt:
                     continue
                 seen_opt.add(ox_id)
                 opts.append({'id': ox_id, 'zh': ox_zh, 'text': x['text'], 'score': 100})
             if pick:
-                pid, pzh = upgrade_to_local_damage(pick['id'], zh_by_id[pick['id']], tw_by_text)
-                k = pid.split('.', 1)[0]
+                if is_implicit:
+                    pid, pzh = pick['id'], zh_by_id[pick['id']]
+                else:
+                    pid, pzh = upgrade_to_local_damage(pick['id'], zh_by_id[pick['id']], tw_by_text)
+                k = 'implicit' if is_implicit else pid.split('.', 1)[0]
                 output.append({
                     'mod': mod,
+                    'isImplicit': is_implicit,
                     'status': 'matched',
                     'id': pid,
                     'kind': k,
-                    'kindLabel': STAT_KIND_LABELS.get(k, k),
+                    'kindLabel': '固定屬性' if is_implicit else STAT_KIND_LABELS.get(k, k),
                     'text': pick['text'],
                     'zh': pzh,
                     'rolls': extract_rolls(mod),
@@ -625,6 +657,7 @@ def match_mods(mods):
             else:
                 output.append({
                     'mod': mod,
+                    'isImplicit': is_implicit,
                     'status': 'ambiguous',
                     'reason': '同一模板存在多個 ID，但沒有可靠中文對照',
                     'zh': known_zh,
@@ -640,6 +673,7 @@ def match_mods(mods):
             preview = suggestions[0]['zh'] if suggestions and suggestions[0]['score'] >= 70 else ''
             output.append({
                 'mod': mod,
+                'isImplicit': is_implicit,
                 'status': 'unmatched',
                 'reason': reason,
                 'zh': known_zh or preview,
@@ -651,11 +685,11 @@ def match_mods(mods):
 
 
 def parse_pasted_item_text(raw_text):
-    """Parse PoE Ctrl+C item text (EN or TW) or plain modifier lines."""
-    lines = [x.strip() for x in str(raw_text or '').splitlines() if x.strip()]
-    if not lines:
+    """Parse PoE Ctrl+C item text (EN or TW), distinguishing implicit vs explicit blocks."""
+    raw_lines = [x.strip() for x in str(raw_text or '').splitlines() if x.strip()]
+    if not raw_lines:
         raise ValueError('請貼上遊戲內 Ctrl+C 複製的物品文字或詞綴內容')
-    if len(lines) > 120:
+    if len(raw_lines) > 120:
         raise ValueError('貼上內容行數過多')
 
     kind = 'unique'
@@ -664,22 +698,22 @@ def parse_pasted_item_text(raw_text):
     has_header = False
 
     rarity_idx = next(
-        (idx for idx, ln in enumerate(lines) if ln.startswith(('Rarity:', '稀有度:'))),
+        (idx for idx, ln in enumerate(raw_lines) if ln.startswith(('Rarity:', '稀有度:'))),
         -1,
     )
     if rarity_idx >= 0:
         has_header = True
-        r_val = lines[rarity_idx].split(':', 1)[1].strip().lower()
+        r_val = raw_lines[rarity_idx].split(':', 1)[1].strip().lower()
         if r_val in ('unique', '傳奇'):
             kind = 'unique'
         elif r_val in ('gem', '技能寶石'):
             kind = 'gem'
         else:
             kind = 'rare'
-        if rarity_idx + 1 < len(lines) and not lines[rarity_idx + 1].startswith('---'):
-            name = lines[rarity_idx + 1]
-        if rarity_idx + 2 < len(lines) and not lines[rarity_idx + 2].startswith('---'):
-            cand_base = lines[rarity_idx + 2]
+        if rarity_idx + 1 < len(raw_lines) and not raw_lines[rarity_idx + 1].startswith('---'):
+            name = raw_lines[rarity_idx + 1]
+        if rarity_idx + 2 < len(raw_lines) and not raw_lines[rarity_idx + 2].startswith('---'):
+            cand_base = raw_lines[rarity_idx + 2]
             if ':' not in cand_base:
                 base = cand_base
 
@@ -695,6 +729,7 @@ def parse_pasted_item_text(raw_text):
         'Limited to:', '僅限:', 'Note:', '備註:', 'Experience:', '經驗值:',
         'Catalyst:', '催化劑:', 'Unique ID:', 'Implicits:', 'Variant:',
         'Selected Variant:', 'Cluster Jewel Skill:', 'Cluster Jewel Node Count:',
+        '~b/o', '~price',
     )
     ignore_exact = {
         'Corrupted', '已汙染', 'Mirrored', '已複製', 'Split', '已分化',
@@ -702,22 +737,53 @@ def parse_pasted_item_text(raw_text):
         'Unidentified', '未鑑定', 'Historic',
     }
 
-    mod_lines = []
+    # Split into blocks separated by '--------' to distinguish implicit vs explicit blocks
+    blocks = []
+    cur_block = []
     start_idx = rarity_idx + 1 if has_header else 0
-    for ln in lines[start_idx:]:
-        if ln.startswith('---') or ln in ignore_exact or ln.startswith(ignore_prefixes):
+    for ln in raw_lines[start_idx:]:
+        if ln.startswith('---'):
+            if cur_block:
+                blocks.append(cur_block)
+                cur_block = []
+            continue
+        if ln in ignore_exact or ln.startswith(ignore_prefixes):
             continue
         if has_header and (ln == name or ln == base):
             continue
         if ln.startswith('{') and '}' in ln:
-            ln = ln.split('}', 1)[1].strip()
+            ln = re.sub(r'^(?:\{[^}]*\})+', '', ln).strip()
         if ln:
-            mod_lines.append(ln)
+            cur_block.append(ln)
+    if cur_block:
+        blocks.append(cur_block)
+
+    # Filter out single-word base type lines in block 0 (e.g., '單手劍', 'Dusk Blade')
+    mod_blocks = []
+    for b_idx, blk in enumerate(blocks):
+        if has_header and b_idx == 0 and len(blk) == 1 and not re.search(r'[0-9+#%]', blk[0]):
+            continue
+        mod_blocks.append(blk)
+
+    mod_items = []
+    if len(mod_blocks) >= 2:
+        # Blocks before the last modifier block are implicits/enchants
+        for blk in mod_blocks[:-1]:
+            for ln in blk:
+                mod_items.append({'text': ln, 'implicit': True})
+        for ln in mod_blocks[-1]:
+            mod_items.append({'text': ln, 'implicit': '(implicit)' in ln.lower()})
+    elif len(mod_blocks) == 1:
+        for ln in mod_blocks[0]:
+            mod_items.append({'text': ln, 'implicit': '(implicit)' in ln.lower()})
 
     resolved_zh = ''
+    is_foulborn = False
     if kind == 'unique' and name:
+        if name.lower().startswith('foulborn ') or name.startswith('穢生'):
+            is_foulborn = True
         if re.search(r'[\u3400-\u9fff]', name):
-            resolved_zh = sanitize_tw_unique_name(name)
+            resolved_zh = name.strip()
         else:
             r = resolve_name(name, 'unique', allow_web=True)
             resolved_zh = r.get('zh') or name
@@ -736,10 +802,11 @@ def parse_pasted_item_text(raw_text):
                 r = resolve_name(target_base, 'base', allow_web=True)
                 resolved_zh = r.get('zh') or target_base
 
-    matched = match_mods(mod_lines)
+    matched = match_mods(mod_items)
     return {
         'kind': kind,
         'itemName': resolved_zh,
+        'isFoulborn': is_foulborn,
         'rawName': name,
         'rawBase': base,
         'mods': matched,
@@ -748,6 +815,8 @@ def parse_pasted_item_text(raw_text):
 
 def sanitize_tw_unique_name(name):
     name = name.strip()
+    # Foulborn items use the base unique name on TW Trade API (e.g., '穢生影殞' -> '影殞')
+    name = re.sub(r'^穢生[．·\s]*', '', name).strip()
     maps = get_official_item_map()
     valid_uniques = maps.get('tw_unique_names') or set()
     valid_bases = maps.get('tw_base_names') or set()
@@ -1496,8 +1565,9 @@ def resolve_name(name, kind, allow_web=True):
             if low.startswith(en_pre):
                 inner_res = resolve_name(name[len(en_pre):].strip(), 'unique', allow_web=True)
                 if inner_res.get('status') == 'verified' and inner_res.get('zh'):
-                    combined = sanitize_tw_unique_name(zh_pre + inner_res['zh'])
-                    return {'en': name, 'zh': combined, 'status': 'verified', 'source': inner_res.get('source')}
+                    # Keep the Foulborn display prefix for UI; search query strips it later
+                    inner_clean = sanitize_tw_unique_name(inner_res['zh'])
+                    return {'en': name, 'zh': zh_pre + inner_clean, 'status': 'verified', 'source': inner_res.get('source')}
 
     key = (kind, name)
     with CACHE_LOCK:
@@ -1585,7 +1655,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
         if route == '/health':
-            self.reply({'ok': True, 'version': '2.29-web'})
+            self.reply({'ok': True, 'version': '2.30-web'})
             return
         if route == '/api/catalogue-status':
             try:
@@ -1709,7 +1779,8 @@ class Handler(BaseHTTPRequestHandler):
                     r = resolve_name(q_name, kind, allow_web=True)
                     if r.get('zh'):
                         q_name = r['zh']
-                        d_name = r['zh']
+                        if not d_name:
+                            d_name = r['zh']
                 if kind == 'rare' and base and not re.search(r'[\u3400-\u9fff]', base):
                     r = resolve_name(base, 'base', allow_web=True)
                     if r.get('zh'):
@@ -1718,7 +1789,6 @@ class Handler(BaseHTTPRequestHandler):
                             d_name = r['zh']
                 if kind == 'unique':
                     q_name = sanitize_tw_unique_name(q_name)
-                    d_name = sanitize_tw_unique_name(d_name)
                 if kind == 'rare' and not d_name:
                     d_name = base or '自訂稀有裝備'
                 build_trade_query(q_name, league, kind, base, stat_ids, stat_filters, status_option=status_opt)
@@ -1855,7 +1925,7 @@ if __name__ == '__main__':
     host = '0.0.0.0'
     port = int(os.environ.get('PORT', '8766'))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'POE 裝備統計 V2.29 (修正偽造總和與特殊詞綴 ID 驗證): http://{host}:{port}/')
+    print(f'POE 裝備統計 V2.30 (固定屬性鎖定不納入搜尋 + 穢生版本智慧提示): http://{host}:{port}/')
     is_cloud = any(os.environ.get(k) for k in ('PORT', 'RENDER', 'ZEABUR', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME'))
     if not is_cloud:
         threading.Timer(0.8, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()
