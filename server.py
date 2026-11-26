@@ -58,11 +58,17 @@ def parse_item(item):
         'Unique ID:', 'Item Level:', 'LevelReq:', 'Quality:', 'Sockets:', 'Implicits:',
         'Requirements:', 'Radius:', 'Limited to:', 'Cluster Jewel Skill:',
         'Cluster Jewel Node Count:', 'Variant:', 'Selected Variant:', 'Enchant:',
-        'Corrupted', 'Mirrored', 'Split', 'Fractured Item', 'Historic', 'Catalyst:',
-        'Armour:', 'Evasion Rating:', 'Energy Shield:', 'Chance to Block:',
+        'Corrupted', 'Mirrored', 'Split', 'Fractured Item', 'Historic', 'Catalyst',
+        'Armour', 'Evasion', 'Energy Shield', 'Ward', 'Chance to Block',
         'Physical Damage:', 'Elemental Damage:', 'Critical Strike Chance:',
         'Attacks per Second:', 'Weapon Range:', 'Map Tier:', 'Stack Size:',
         'Rarity:', 'Level:', 'Dex:', 'Str:', 'Int:',
+    )
+    skill_grant_re = re.compile(
+        r'^(?:Grants?\s+Level\s+\d+|Trigger\s+Level\s+\d+|Cast\s+Level\s+\d+|'
+        r'授予\s*等級\s*\d+|觸發\s*等級\s*\d+|施放\s*等級\s*\d+|'
+        r'產生\s*低階神殿|Grant\s+a\s+Level\s+\d+)',
+        re.I,
     )
     mods = []
     implicit_count = 0
@@ -75,6 +81,7 @@ def parse_item(item):
             continue
         if (
             x == base
+            or re.match(r'^[A-Za-z][A-Za-z0-9_ ]{1,30}:', x)
             or x.startswith(ignore)
             or x.startswith((
                 'Has Influence:', 'Influence:', 'Tags:', 'ArmourBasePercentile:',
@@ -86,7 +93,7 @@ def parse_item(item):
             continue
         if x.startswith('{') and '}' in x:
             x = re.sub(r'^(?:\{[^}]*\})+', '', x).strip()
-        if x and not x.startswith(('Item ', 'Requires ')):
+        if x and not x.startswith(('Item ', 'Requires ')) and not skill_grant_re.search(x):
             mods.append(x)
     return {
         'rarity': rarity,
@@ -1028,8 +1035,9 @@ def parse_pasted_item_text(raw_text):
         'Attacks per Second:', '每秒攻擊次數:', 'Weapon Range:', '武器範圍:',
         'Map Tier:', '地圖階級:', 'Stack Size:', '堆疊數量:', 'Radius:', '範圍:',
         'Limited to:', '僅限:', 'Note:', '備註:', 'Experience:', '經驗值:',
-        'Catalyst:', '催化劑:', 'Unique ID:', 'Implicits:', 'Variant:',
+        'Catalyst:', 'CatalystQuality:', '催化劑:', 'Unique ID:', 'Implicits:', 'Variant:',
         'Selected Variant:', 'Cluster Jewel Skill:', 'Cluster Jewel Node Count:',
+        'Armour:', 'Evasion:', 'Energy Shield:', 'Ward:',
         '~b/o', '~price',
     )
     ignore_exact = {
@@ -1047,7 +1055,7 @@ def parse_pasted_item_text(raw_text):
             continue
         if ln.startswith('{') and '}' in ln:
             ln = re.sub(r'^(?:\{[^}]*\})+', '', ln).strip()
-        if ln:
+        if ln and not re.match(r'^[A-Za-z][A-Za-z0-9_ ]{1,30}:', ln) and not re.search(r'(?:Grants?\s+Level\s+\d+|Trigger\s+Level\s+\d+|授予\s*等級\s*\d+|觸發\s*等級\s*\d+|產生\s*低階神殿)', ln, re.I):
             mod_lines.append(ln)
 
     if has_header and mod_lines and not re.search(r'[0-9+#%]', mod_lines[0]) and len(mod_lines[0]) <= 12:
@@ -1136,8 +1144,7 @@ def build_trade_query(name, league, kind='unique', base='', stat_ids=None, stat_
         if kind == 'unique':
             clean_name = sanitize_tw_unique_name(name)
             query['name'] = clean_name
-        elif base and re.search(r'[\u3400-\u9fff]', base):
-            query['type'] = base.strip()
+        # Rare items filter strictly by selected mod stats only (no name or base type)
         if stat_ids:
             if (
                 not isinstance(stat_ids, list)
@@ -1936,7 +1943,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
         if route == '/health':
-            self.reply({'ok': True, 'version': '2.33-web'})
+            self.reply({'ok': True, 'version': '2.34-web'})
             return
         if route == '/api/catalogue-status':
             try:
@@ -2249,7 +2256,7 @@ if __name__ == '__main__':
     host = '0.0.0.0'
     port = int(os.environ.get('PORT', '8766'))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'POE 裝備統計 V2.33 (所有賣場與監管預設為「即刻購買」): http://{host}:{port}/')
+    print(f'POE 裝備統計 V2.34 (多星團珠寶完整保留 + 稀有純詞條搜尋 + 過濾雜項與裝備技能): http://{host}:{port}/')
     is_cloud = any(os.environ.get(k) for k in ('PORT', 'RENDER', 'ZEABUR', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME'))
     if not is_cloud:
         threading.Timer(0.8, lambda: webbrowser.open(f'http://127.0.0.1:{port}/')).start()

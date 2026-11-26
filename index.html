@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>POE 裝備統計助手 V2.33</title>
+<title>POE 裝備統計助手 V2.34</title>
 <style>
 :root{
   --nav-bg:#2b3643;
@@ -499,7 +499,7 @@ tr.mod-drawer-row td{
     <div class="brand">
       <span class="brand-logo">P</span>
       <span>POE 裝備統計</span>
-      <span class="ver-pill">V2.33</span>
+      <span class="ver-pill">V2.34</span>
     </div>
   </div>
   <div class="topbar-right">
@@ -1290,6 +1290,14 @@ $('resetFilter').onclick=()=>{$('find').value='';$('filterMode').value='all';ren
 
 function isJewel(x){return x.slot==='珠寶'||/Jewel/i.test(x.base||'')}
 
+function isCleanStatLine(s){
+  const t=String(s||'').trim();
+  if(!t)return false;
+  if(/^(?:Evasion|Armour|Energy Shield|Ward|CatalystQuality|Unique ID|Item Level|Implicits|Quality|Sockets|Crafted):/i.test(t))return false;
+  if(/^(?:Grants?\s+Level\s+\d+|Trigger\s+Level\s+\d+|Cast\s+Level\s+\d+|授予\s*等級\s*\d+|觸發\s*等級\s*\d+|施放\s*等級\s*\d+|產生\s*低階神殿)/i.test(t))return false;
+  return true;
+}
+
 function groupedForTab(targetTab){
   let m=new Map();
   for(let c of chars){
@@ -1298,15 +1306,26 @@ function groupedForTab(targetTab){
       (c.items||[]).filter(x=>targetTab==='rare'?x.rarity==='RARE':x.rarity==='UNIQUE'&&(targetTab==='jewels'?isJewel(x):!isJewel(x))).map(x=>({...x,kind:targetTab==='rare'?'rare':'unique'}));
     for(let x of input){
       let name=(x.name||'').trim(),base=(x.base||'').trim(),slot=x.slot||'';
-      if(targetTab==='rare')name=base||slot||'未知基底';
+      const cleanMods=(x.mods||[]).filter(isCleanStatLine);
+      if(targetTab==='rare'){
+        name='稀有裝備詞條篩選';
+      }
       if(!name)continue;
-      let key=targetTab==='rare'?'rare|'+slot+'|'+base.toLowerCase():name.toLowerCase();
+      let key;
+      if(targetTab==='rare'){
+        key='rare|all';
+      }else if(targetTab==='jewels'){
+        const modSig=cleanMods.map(z=>z.toLowerCase()).sort().join('||');
+        key='jewel|'+name.toLowerCase()+'|'+base.toLowerCase()+'|'+(modSig||slot.toLowerCase()||Math.random().toString(36).slice(2,7));
+      }else{
+        key=name.toLowerCase();
+      }
       if(found.has(key))continue;found.add(key);
       let v=m.get(key)||{name,base,slot,kind:x.kind,count:0,variants:[]};
       v.count++;
       if(x.kind==='rare'||x.kind==='unique'){
         v.variants.push({
-          mods:x.mods||[],
+          mods:cleanMods,
           source:c.source||c.id,
           originalName:x.name,
         });
@@ -1355,9 +1374,9 @@ function buildSearchPayload(x){
     return (z.option===null||z.option===undefined)&&hasMin?`${z.zh} (≥ ${z.minValue})`:z.zh;
   });
 
-  const rawDisplayName=tab==='rare'?(localizedBase(x)||x.name):(tr?.zh||x.name);
+  const rawDisplayName=tab==='rare'?'稀有裝備（純詞條篩選）':(tr?.zh||x.name);
   const foulborn=(tab!=='rare'&&isFoulbornItem(x,tr?.zh));
-  const searchName=tab==='rare'?x.name:(foulborn?stripFoulbornZh(tr.zh):tr.zh);
+  const searchName=tab==='rare'?'稀有裝備':(foulborn?stripFoulbornZh(tr.zh):tr.zh);
 
   if(foulborn){
     condParts.unshift(`穢生版本（搜尋「${searchName}」）`);
@@ -1370,7 +1389,7 @@ function buildSearchPayload(x){
     isFoulborn:foulborn,
     league,
     kind:x.kind,
-    base:tab==='rare'?(localizedBase(x)!==x.base?localizedBase(x):''):(x.base||''),
+    base:'',
     statIds,
     statFilters,
     condSummary:condParts.join(' ｜ '),
@@ -1386,8 +1405,8 @@ function buildModOverrideEditor(dKey, mi, m){
     option:c.option??null,
     zh:c.zh,
     en:c.text||'',
-    kind:String(c.id).split('.')[0],
-    kindLabel:({explicit:'外顯',implicit:'固定',fractured:'破裂',crafted:'工藝',enchant:'附魔',pseudo:'總和'}[String(c.id).split('.')[0]]||'詞綴'),
+    kind:String(c.id).startsWith('implicit.')?'implicit':String(c.id).split('.')[0],
+    kindLabel:String(c.id).startsWith('implicit.')?'固定屬性':({explicit:'外顯',implicit:'固定屬性',fractured:'破裂',crafted:'工藝',enchant:'附魔',pseudo:'總和'}[String(c.id).split('.')[0]]||'詞綴'),
   }));
   const list=cached!==undefined?cached:fallbackList;
 
@@ -1661,13 +1680,19 @@ function renderLinks(){
   $('linkTab').textContent=TAB_NAMES[tab];
 
   $('links').innerHTML=rows.map((x,i)=>{
-    let tr=translated(x), ok=tr&&tr.status==='verified'&&tr.zh;
-    if(tab==='rare'){tr=translations['base|'+x.base];ok=!!(tr&&tr.status==='verified'&&tr.zh);}
+    let tr=translated(x), ok=!!(tr&&tr.status==='verified'&&tr.zh);
+    if(tab==='rare'){ok=true;}
     const foulborn=(tab!=='rare'&&isFoulbornItem(x,tr?.zh));
     const foulbornBadge=foulborn?`<span class="foulborn-tag">穢生版本</span>`:'';
-    let nameCell=ok
-      ?(tr.source?`<a class="item-zh-link" href="${esc(tr.source)}" target="_blank" rel="noopener">${esc(tr.zh)}</a>${foulbornBadge}`:`<span class="item-zh-link">${esc(tr.zh)}</span>${foulbornBadge}`)
-      :`<span class="item-unverified">${esc(x.name)}</span>${foulbornBadge}<span class="pending-tag">待核對</span>`;
+    const jewelBaseHint=(tab==='jewels'&&x.base)?`<span style="font-size:13px;color:var(--text-muted);margin-left:8px">(${esc(localizedBase(x))})</span>`:'';
+    let nameCell;
+    if(tab==='rare'){
+      nameCell=`<span class="item-zh-link">稀有裝備（僅依詞綴篩選）</span>`;
+    }else if(ok){
+      nameCell=(tr.source?`<a class="item-zh-link" href="${esc(tr.source)}" target="_blank" rel="noopener">${esc(tr.zh)}</a>`:`<span class="item-zh-link">${esc(tr.zh)}</span>`)+jewelBaseHint+foulbornBadge;
+    }else{
+      nameCell=`<span class="item-unverified">${esc(x.name)}</span>`+jewelBaseHint+foulbornBadge+`<span class="pending-tag">待核對</span>`;
+    }
 
     const dKey=detailKey(x);
     const isExpanded=(expandedDetailKey===dKey);
