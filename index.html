@@ -1097,14 +1097,18 @@ async function tryRestoreFromBackup(){
       await api('/api/monitors/settings',{discordWebhook:bak.discordWebhook.trim()});
     }
     let restoredCount=0;
+    let failedCount=0;
     for(const m of mons.slice().reverse()){
       try{
         await api('/api/monitors/add',m);
         restoredCount++;
-      }catch(e){}
+      }catch(e){
+        failedCount++;
+      }
     }
     if(hasWh||restoredCount>0){
-      msg(`偵測到伺服器剛從休眠喚醒，已自動還原你的 Discord Webhook${restoredCount?` 與 ${restoredCount} 項監控設定`:''}！`);
+      const errNote=failedCount>0?`（另有 ${failedCount} 項因伺服器網路或名稱驗證未成功還原，可至「市場自動監控」手動補建）`:'';
+      msg(`偵測到伺服器剛從休眠或重新部署恢復，已自動還原你的 Discord Webhook${restoredCount?` 與 ${restoredCount} 項監控設定`:''}${errNote}！`,failedCount>0?'warn':false);
       return true;
     }
     return false;
@@ -2377,7 +2381,15 @@ async function pollMonitors(skipNotify=false){
     const d=await res.json();
     if(!d.ok)return;
 
-    if(!restoreAttempted[clientId]&&(d.monitors||[]).length===0&&!d.discordWebhook){
+    const bakRaw=localStorage.getItem('poeMonitorBackup_'+clientId);
+    let hasBak=false;
+    if(bakRaw){
+      try{
+        const b=JSON.parse(bakRaw);
+        hasBak=!!((b.discordWebhook&&b.discordWebhook.trim())||(Array.isArray(b.monitors)&&b.monitors.length>0));
+      }catch(e){}
+    }
+    if(!restoreAttempted[clientId]&&hasBak&&(d.monitors||[]).length===0){
       restoreAttempted[clientId]=true;
       const restored=await tryRestoreFromBackup();
       if(restored)return pollMonitors(true);
