@@ -36,6 +36,33 @@
       "zh": "威宏史觀",
       "en": "Historic",
       "updatedAt": "2026-11-26 08:27:25"
+    },
+    "# increased attack speed": {
+      "key": "# increased attack speed",
+      "exampleMod": "9% increased Attack Speed",
+      "id": "explicit.stat_681332047",
+      "option": null,
+      "zh": "增加 #% 攻擊速度",
+      "en": "#% increased Attack Speed",
+      "updatedAt": "2026-11-27 01:18:20"
+    },
+    "# reduced movement speed": {
+      "key": "# reduced movement speed",
+      "exampleMod": "5% reduced Movement Speed",
+      "id": "explicit.stat_2250533757",
+      "option": null,
+      "zh": "增加 #% 移動速度",
+      "en": "#% increased Movement Speed",
+      "updatedAt": "2026-11-27 01:36:36"
+    },
+    "# increased rarity of items found": {
+      "key": "# increased rarity of items found",
+      "exampleMod": "50% increased Rarity of Items found",
+      "id": "implicit.stat_3917489142",
+      "option": null,
+      "zh": "+#%物品稀有度",
+      "en": "+#% to Item Rarity",
+      "updatedAt": "2026-11-27 01:37:46"
     }
   }
 }
